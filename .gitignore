@@ -8,6 +8,13 @@ musicgen_fixed
 musicgen-small
 musicgen-stereo-small
 __pycache__
-node_modules
-.vst
-.vst3
+./plugins/MusicGen/app/app/
+release/*
+vst2/*
+./vst2
+vst3/*
+./vst3
+codesign_cert.txt
+.DS_Store
+*DS_Store
+venv
