@@ -8,10 +8,10 @@ WORKDIR /app
 COPY . /app
 
 # Install dependencies
-RUN pip install --no-cache-dir flask
+RUN pip install --no-cache-dir flask transformers soundfile torchaudio
 
 # Expose the Flask port
-EXPOSE 5000
+EXPOSE 55000
 
 # Run the Flask app
 CMD ["python", "app.py"]

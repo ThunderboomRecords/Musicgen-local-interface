@@ -8,6 +8,8 @@ from transformers import pipeline
 import platform
 
 current_os = platform.system()
+use_small = True
+use_melody = True
 
 if current_os == "Windows" or current_os == "Linux":
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
@@ -18,19 +20,27 @@ elif current_os == "Darwin":
 AUDIO_FOLDER = os.path.join(Path.home(), 'audio')
 os.makedirs(AUDIO_FOLDER, exist_ok=True)
 
-processor_small = AutoProcessor.from_pretrained("facebook/musicgen-stereo-small")
-model_small = MusicgenForConditionalGeneration.from_pretrained("facebook/musicgen-stereo-small").to(device)
-processor_melody = AutoProcessor.from_pretrained("facebook/musicgen-stereo-melody")
-model_melody = MusicgenMelodyForConditionalGeneration.from_pretrained("facebook/musicgen-stereo-melody").to(device)
+if use_small:
+    processor_small = AutoProcessor.from_pretrained("facebook/musicgen-stereo-small", cache_dir="./.cache")
+    model_small = MusicgenForConditionalGeneration.from_pretrained("facebook/musicgen-stereo-small", cache_dir="./.cache").to(device)
 
 # Initialize the Flask application
 app = Flask(__name__, static_url_path='/')
 
 # Replace this function with your actual audio generation logic
 def generate_audio(prompt, temperature, topk, topp, cfg, samples, duration, dropped=False, userid=None):
-    audio_file_paths = [os.path.join(AUDIO_FOLDER, f"{uuid.uuid4()}") for _ in range(samples)]
+    # FIX: Define the specific user directory
+    user_dir = os.path.join(AUDIO_FOLDER, userid) if userid else AUDIO_FOLDER
+    
+    # FIX: Save files inside the user_dir, not the global AUDIO_FOLDER
+    audio_file_paths = [os.path.join(user_dir, f"{uuid.uuid4()}") for _ in range(samples)]
+    
+    # Logic for recent_audio.txt (optional, but better inside user dir to avoid conflicts)
     txt_file = '\n'.join(audio_file_paths)
-    os.system(f'echo "{txt_file}" > {os.path.join(AUDIO_FOLDER, "recent_audio.txt")}')
+    # Using python file write instead of os.system is safer and cross-platform
+    with open(os.path.join(user_dir, "recent_audio.txt"), "w") as f:
+        f.write(txt_file)
+
     if dropped:
         melody, sr = torchaudio.load(dropped)
         inputs = processor_small(
@@ -56,9 +66,11 @@ def generate_audio(prompt, temperature, topk, topp, cfg, samples, duration, drop
             top_p=topp,
             guidance_scale=cfg,
         )
-        sf.write(audio_file_path, wav[0].T.Tcpu(), 32000)
+        # Ensure the filename ends in .wav
+        sf.write(f"{audio_file_path}.wav", wav[0].T.cpu(), 32000)
 
-    return [f"{audio_file_path}.wav" for audio_file_path in audio_file_paths ]
+    # Return filenames with .wav extension
+    return [f"{audio_file_path}.wav" for audio_file_path in audio_file_paths]
 
 @app.route('/', methods=['GET', 'POST'])
 def index():

@@ -18,3 +18,4 @@ codesign_cert.txt
 .DS_Store
 *DS_Store
 venv
+.cache
