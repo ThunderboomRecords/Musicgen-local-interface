@@ -1,42 +1,111 @@
-## Install
-```sudo apt update```
-```sudo apt install git cmake g++ pkg-config libx11-dev libgl1-mesa-dev libasound2-dev libjack-jackd2-dev meson```
+# MusicGenVST
 
-```git clone https://github.com/DISTRHO/DPF.git```
+A VST plugin implementation using MusicGen.
 
-```git submodule update --init --recursive```
+## Prerequisites
 
-### OSX
-#### ARM64
-```
-arch -arm64 brew install jsoncpp curl sndfile
-cd ./plugins/MusicGen
-chmod +x ./build.sh
-./build.sh
-```
+Before building the project, ensure your system has the necessary build tools and libraries installed.
 
-#### AMD64
-```
-arch -x86_64 brew install jsoncpp curl sndfile
-cd ./plugins/MusicGen
-chmod +x ./build.sh
-./build.sh
-```
+### System Dependencies (Linux)
 
-# Ignor
-```
+Update your package manager and install the core build tools:
+
+```bash
 sudo apt update
-sudo apt install meson ninja-build
-git clone https://github.com/lv2/pugl.git
-cd pugl
-meson setup build
-meson compile -C build
-sudo meson install -C build
+sudo apt install build-essential git cmake g++ pkg-config meson
+
 ```
 
-```jupyterlab-markup```
+### Library Dependencies
 
-## Linux make setup
-```sudo apt-get install libcurl4-openssl-dev libjsoncpp-dev```
+Install the required development libraries for graphics, audio, and protobuf support:
 
-brew install libsndfile jsoncpp
+```bash
+sudo apt install libx11-dev libgl1-mesa-dev libasound2-dev libjack-jackd2-dev libprotobuf-dev protobuf-compiler
+
+```
+
+---
+
+## Installation
+
+### 1. Clone the Repository
+
+Clone this repository and initialize the required submodules:
+
+```bash
+git clone [https://github.com/YOUR_USERNAME/MusicGenVST.git](https://github.com/YOUR_USERNAME/MusicGenVST.git)
+cd MusicGenVST
+git submodule update --init --recursive
+
+```
+
+### 2. Install/Build External Dependencies
+
+#### DPF (DISTRHO Plugin Framework)
+
+```bash
+git clone [https://github.com/DISTRHO/DPF.git](https://github.com/DISTRHO/DPF.git)
+
+```
+
+#### ONNX Runtime
+
+This project requires `onnxruntime` to be built from source.
+
+```bash
+# Install ONNX build dependencies
+sudo apt-get install build-essential libprotobuf-dev protobuf-compiler git cmake
+
+# Clone the repository
+git clone [https://github.com/microsoft/onnxruntime.git](https://github.com/microsoft/onnxruntime.git)
+cd onnxruntime
+
+# Build shared libraries
+./build.sh --config Release --build_shared_lib --parallel
+
+# Install to system
+sudo ./build.sh --build_shared_lib --parallel --install
+
+# Return to project root
+cd ..
+
+```
+
+---
+
+## Building
+
+### Linking
+
+Ensure you link against the ONNX Runtime correctly during compilation. An example build command looks like this:
+
+```bash
+g++ -I/usr/local/include/onnxruntime -L/usr/local/lib -lonnxruntime main.cpp -o MusicGenVST
+
+```
+
+---
+
+## Configuration & Usage
+
+### Environment Variables (Linux)
+
+You may need to update your library path to locate the built shared libraries for ONNX Runtime and SentencePiece before running the application.
+
+```bash
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./src/onnxruntime
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./src/sentencepiece
+
+```
+
+> **Note:** Windows build instructions are currently in development.
+
+---
+
+## Acknowledgments & Libraries
+
+* [DPF](https://github.com/DISTRHO/DPF.git)
+* [ONNX Runtime](https://github.com/microsoft/onnxruntime.git)
+* [nlohmann/json](https://github.com/nlohmann/json)
+* [SentencePiece](https://github.com/google/sentencepiece)
