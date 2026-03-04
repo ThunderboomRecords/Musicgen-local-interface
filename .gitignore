@@ -4,7 +4,7 @@ bin
 .vscode
 musicgen-stereo
 quantized_musicgen
-musicgen_fixed 
+musicgen_fixed
 musicgen-small
 musicgen-stereo-small
 __pycache__
@@ -19,3 +19,8 @@ codesign_cert.txt
 *DS_Store
 venv
 .cache
+output
+staging-*
+deb-staging
+tar-staging
+.claude
