@@ -83,7 +83,12 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     advancedToggle.onClick = [this]
     {
         advancedVisible = ! advancedVisible;
-        setSize (baseWidth, advancedVisible ? baseHeight + advancedHeight : baseHeight);
+        double scale = static_cast<double> (getWidth()) / static_cast<double> (baseWidth);
+        int targetH = advancedVisible ? baseHeight + advancedHeight : baseHeight;
+        constrainer.setFixedAspectRatio (static_cast<double> (baseWidth) / static_cast<double> (targetH));
+        constrainer.setMinimumSize (baseWidth / 2, targetH / 2);
+        constrainer.setMaximumSize (static_cast<int> (baseWidth * 2.5), static_cast<int> (targetH * 2.5));
+        setSize (static_cast<int> (baseWidth * scale), static_cast<int> (targetH * scale));
     };
     addAndMakeVisible (advancedToggle);
 
@@ -131,6 +136,17 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     addChildComponent (cfgDial);
     addChildComponent (cfgLabel);
 
+    // Resizable from 50% to 250% with list-height snapping
+    constrainer.advancedVisiblePtr = &advancedVisible;
+    constrainer.bw = baseWidth;
+    constrainer.bh = baseHeight;
+    constrainer.advH = advancedHeight;
+    const int currentH = advancedVisible ? baseHeight + advancedHeight : baseHeight;
+    constrainer.setFixedAspectRatio (static_cast<double> (baseWidth) / static_cast<double> (currentH));
+    constrainer.setMinimumSize (baseWidth / 2, currentH / 2);
+    constrainer.setMaximumSize (static_cast<int> (baseWidth * 2.5), static_cast<int> (currentH * 2.5));
+    setConstrainer (&constrainer);
+    setResizable (true, true);
     setSize (baseWidth, baseHeight);
 }
 
@@ -146,23 +162,25 @@ void MusicGenVSTEditor::paint (juce::Graphics& g)
 
 void MusicGenVSTEditor::resized()
 {
-    const int pad = 10;
+    const double scale = static_cast<double> (getWidth()) / static_cast<double> (baseWidth);
+    const int pad = static_cast<int> (10 * scale);
     auto bounds = getLocalBounds().reduced (pad);
-    const int margin = 8;
-    const int buttonMargin = 12;
-    const int buttonH = 31;
-    const int labelH = 23;
-    const int inputH = 31;
+    const int margin = static_cast<int> (8 * scale);
+    const int buttonMargin = static_cast<int> (12 * scale);
+    const int buttonH = static_cast<int> (31 * scale);
+    const int labelH = static_cast<int> (23 * scale);
+    const int inputH = static_cast<int> (31 * scale);
+    const int scaledAdvHeight = static_cast<int> (advancedHeight * scale);
 
     // Reserve space for advanced section if visible
-    auto topArea = bounds.removeFromTop (advancedVisible ? bounds.getHeight() - advancedHeight : bounds.getHeight());
+    auto topArea = bounds.removeFromTop (advancedVisible ? bounds.getHeight() - scaledAdvHeight : bounds.getHeight());
 
     // Split into left (50%) and right (50%)
     auto leftPanel = topArea.removeFromLeft (topArea.getWidth() / 2);
     auto rightPanel = topArea;
 
     // --- Left panel ---
-    auto left = leftPanel.withTrimmedRight (5);
+    auto left = leftPanel.withTrimmedRight (static_cast<int> (5 * scale));
 
     // Upload File button
     uploadFileButton.setBounds (left.removeFromTop (buttonH));
@@ -205,7 +223,7 @@ void MusicGenVSTEditor::resized()
     advancedToggle.setBounds (left.removeFromTop (buttonH));
 
     // --- Right panel ---
-    auto right = rightPanel.withTrimmedLeft (5);
+    auto right = rightPanel.withTrimmedLeft (static_cast<int> (5 * scale));
     sampleList.setBounds (right);
     sampleList.setRowHeight (right.getHeight() / 10);
 
@@ -221,9 +239,9 @@ void MusicGenVSTEditor::resized()
         cfgDial.setVisible (true);
         cfgLabel.setVisible (true);
 
-        auto advArea = bounds.reduced (5);
+        auto advArea = bounds.reduced (static_cast<int> (5 * scale));
         const int dialWidth = advArea.getWidth() / 4;
-        const int advLabelH = 23;
+        const int advLabelH = static_cast<int> (23 * scale);
 
         auto tempArea = advArea.removeFromLeft (dialWidth);
         temperatureLabel.setBounds (tempArea.removeFromTop (advLabelH));

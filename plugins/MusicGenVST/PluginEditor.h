@@ -39,6 +39,42 @@ public:
 };
 
 //==============================================================================
+class ListSnapConstrainer final : public juce::ComponentBoundsConstrainer
+{
+public:
+    bool* advancedVisiblePtr = nullptr;
+    int bw = 728, bh = 330, advH = 169;
+
+    void checkBounds (juce::Rectangle<int>& bounds,
+                      const juce::Rectangle<int>& old,
+                      const juce::Rectangle<int>& limits,
+                      bool isStretchingTop, bool isStretchingLeft,
+                      bool isStretchingBottom, bool isStretchingRight) override
+    {
+        ComponentBoundsConstrainer::checkBounds (bounds, old, limits,
+            isStretchingTop, isStretchingLeft, isStretchingBottom, isStretchingRight);
+
+        bool adv = (advancedVisiblePtr != nullptr) && *advancedVisiblePtr;
+        int w = bounds.getWidth();
+        int h = bounds.getHeight();
+        double scale = static_cast<double> (w) / static_cast<double> (bw);
+        int pad = static_cast<int> (10.0 * scale);
+        int scaledAdvH = adv ? static_cast<int> (advH * scale) : 0;
+        int listH = h - 2 * pad - scaledAdvH;
+        int remainder = listH % 10;
+
+        if (remainder != 0)
+        {
+            h -= remainder;
+            int targetBaseH = adv ? bh + advH : bh;
+            double ar = static_cast<double> (bw) / static_cast<double> (targetBaseH);
+            w = static_cast<int> (h * ar);
+            bounds.setSize (w, h);
+        }
+    }
+};
+
+//==============================================================================
 class MusicGenVSTEditor final : public juce::AudioProcessorEditor
 {
 public:
@@ -87,6 +123,8 @@ private:
     static constexpr int baseWidth = 728;
     static constexpr int baseHeight = 330;
     static constexpr int advancedHeight = 169;
+
+    ListSnapConstrainer constrainer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MusicGenVSTEditor)
 };
