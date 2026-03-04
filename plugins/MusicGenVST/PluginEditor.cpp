@@ -15,22 +15,29 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-MusicGenVSTEditor::MusicGenVSTEditor(MusicGenVSTProcessor& p)
-    : AudioProcessorEditor(&p), processorRef(p)
+//==============================================================================
+MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
+    : AudioProcessorEditor (&p), processorRef (p)
 {
-    setSize(800, 600);
+    juce::ignoreUnused (processorRef);
+    setSize (400, 300);
 }
 
-MusicGenVSTEditor::~MusicGenVSTEditor() {}
-
-void MusicGenVSTEditor::paint(juce::Graphics& g)
+MusicGenVSTEditor::~MusicGenVSTEditor()
 {
-    g.fillAll(juce::Colours::black);
-    g.setColour(juce::Colours::white);
-    g.setFont(20.0f);
-    g.drawFittedText("MusicGenVST — Thunderboom Records", getLocalBounds(), juce::Justification::centred, 1);
+}
+
+//==============================================================================
+void MusicGenVSTEditor::paint (juce::Graphics& g)
+{
+    g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
+
+    g.setColour (juce::Colours::white);
+    g.setFont (15.0f);
+    g.drawFittedText ("MusicGenVST", getLocalBounds(), juce::Justification::centred, 1);
 }
 
 void MusicGenVSTEditor::resized()

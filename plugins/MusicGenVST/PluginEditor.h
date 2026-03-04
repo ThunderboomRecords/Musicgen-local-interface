@@ -18,19 +18,20 @@
 #pragma once
 
 #include "PluginProcessor.h"
-#include <juce_gui_basics/juce_gui_basics.h>
 
-class MusicGenVSTEditor : public juce::AudioProcessorEditor
+//==============================================================================
+class MusicGenVSTEditor final : public juce::AudioProcessorEditor
 {
 public:
-    explicit MusicGenVSTEditor(MusicGenVSTProcessor&);
+    explicit MusicGenVSTEditor (MusicGenVSTProcessor&);
     ~MusicGenVSTEditor() override;
 
-    void paint(juce::Graphics&) override;
+    //==============================================================================
+    void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
     MusicGenVSTProcessor& processorRef;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MusicGenVSTEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MusicGenVSTEditor)
 };

@@ -18,44 +18,362 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+//==============================================================================
 MusicGenVSTProcessor::MusicGenVSTProcessor()
-    : AudioProcessor(BusesProperties()
-                         .withOutput("Output", juce::AudioChannelSet::stereo(), true))
+     : AudioProcessor (BusesProperties()
+                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
+{
+    formatManager.registerBasicFormats();
+    userId = juce::Uuid().toString();
+}
+
+MusicGenVSTProcessor::~MusicGenVSTProcessor()
 {
 }
 
-MusicGenVSTProcessor::~MusicGenVSTProcessor() {}
+//==============================================================================
+const juce::String MusicGenVSTProcessor::getName() const
+{
+    return JucePlugin_Name;
+}
 
-const juce::String MusicGenVSTProcessor::getName() const { return JucePlugin_Name; }
+bool MusicGenVSTProcessor::acceptsMidi() const
+{
+   #if JucePlugin_WantsMidiInput
+    return true;
+   #else
+    return false;
+   #endif
+}
 
-bool MusicGenVSTProcessor::acceptsMidi() const { return true; }
-bool MusicGenVSTProcessor::producesMidi() const { return true; }
-bool MusicGenVSTProcessor::isMidiEffect() const { return true; }
-double MusicGenVSTProcessor::getTailLengthSeconds() const { return 0.0; }
+bool MusicGenVSTProcessor::producesMidi() const
+{
+   #if JucePlugin_ProducesMidiOutput
+    return true;
+   #else
+    return false;
+   #endif
+}
 
-int MusicGenVSTProcessor::getNumPrograms() { return 1; }
-int MusicGenVSTProcessor::getCurrentProgram() { return 0; }
-void MusicGenVSTProcessor::setCurrentProgram(int) {}
-const juce::String MusicGenVSTProcessor::getProgramName(int) { return {}; }
-void MusicGenVSTProcessor::changeProgramName(int, const juce::String&) {}
+bool MusicGenVSTProcessor::isMidiEffect() const
+{
+   #if JucePlugin_IsMidiEffect
+    return true;
+   #else
+    return false;
+   #endif
+}
 
-void MusicGenVSTProcessor::prepareToPlay(double, int) {}
-void MusicGenVSTProcessor::releaseResources() {}
+double MusicGenVSTProcessor::getTailLengthSeconds() const
+{
+    return 0.0;
+}
 
-void MusicGenVSTProcessor::processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&)
+int MusicGenVSTProcessor::getNumPrograms()
+{
+    return 1;
+}
+
+int MusicGenVSTProcessor::getCurrentProgram()
+{
+    return 0;
+}
+
+void MusicGenVSTProcessor::setCurrentProgram (int index)
+{
+    juce::ignoreUnused (index);
+}
+
+const juce::String MusicGenVSTProcessor::getProgramName (int index)
+{
+    juce::ignoreUnused (index);
+    return {};
+}
+
+void MusicGenVSTProcessor::changeProgramName (int index, const juce::String& newName)
+{
+    juce::ignoreUnused (index, newName);
+}
+
+//==============================================================================
+void MusicGenVSTProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+{
+    juce::ignoreUnused (samplesPerBlock);
+    currentSampleRate = sampleRate;
+}
+
+void MusicGenVSTProcessor::releaseResources()
 {
 }
 
-bool MusicGenVSTProcessor::hasEditor() const { return true; }
+bool MusicGenVSTProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+{
+    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
+     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+        return false;
+
+    return true;
+}
+
+void MusicGenVSTProcessor::processBlock (juce::AudioBuffer<float>& buffer,
+                                          juce::MidiBuffer& midiMessages)
+{
+    juce::ignoreUnused (midiMessages);
+    juce::ScopedNoDenormals noDenormals;
+
+    auto totalNumInputChannels  = getTotalNumInputChannels();
+    auto totalNumOutputChannels = getTotalNumOutputChannels();
+
+    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
+        buffer.clear (i, 0, buffer.getNumSamples());
+
+    // Mix playing generated sample into output
+    {
+        std::lock_guard<std::mutex> lock (samplesMutex);
+        if (playingSampleIndex >= 0 && playingSampleIndex < (int) generatedSamples.size())
+        {
+            auto& sample = generatedSamples[(size_t) playingSampleIndex];
+            const int sampleLen = sample.buffer.getNumSamples();
+            const int sampleCh = sample.buffer.getNumChannels();
+            const int numSamples = buffer.getNumSamples();
+            const int numChannels = buffer.getNumChannels();
+            const int samplesToWrite = std::min (numSamples, sampleLen - playbackPosition);
+
+            if (samplesToWrite > 0)
+            {
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    int srcCh = std::min (ch, sampleCh - 1);
+                    buffer.addFrom (ch, 0, sample.buffer, srcCh, playbackPosition, samplesToWrite);
+                }
+                playbackPosition += samplesToWrite;
+            }
+
+            if (playbackPosition >= sampleLen)
+            {
+                playingSampleIndex = -1;
+                playbackPosition = 0;
+            }
+        }
+    }
+}
+
+//==============================================================================
+bool MusicGenVSTProcessor::hasEditor() const
+{
+    return true;
+}
 
 juce::AudioProcessorEditor* MusicGenVSTProcessor::createEditor()
 {
-    return new MusicGenVSTEditor(*this);
+    return new MusicGenVSTEditor (*this);
 }
 
-void MusicGenVSTProcessor::getStateInformation(juce::MemoryBlock&) {}
-void MusicGenVSTProcessor::setStateInformation(const void*, int) {}
+//==============================================================================
+void MusicGenVSTProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
+    juce::ValueTree state ("MusicGenVST");
+    state.setProperty ("userId", userId, nullptr);
+    juce::MemoryOutputStream stream (destData, true);
+    state.writeToStream (stream);
+}
 
+void MusicGenVSTProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    auto state = juce::ValueTree::readFromData (data, (size_t) sizeInBytes);
+    if (state.isValid())
+        userId = state.getProperty ("userId", userId).toString();
+}
+
+//==============================================================================
+// Generation (HTTP to localhost:55000)
+//==============================================================================
+
+void MusicGenVSTProcessor::generateAsync (const juce::String& prompt, const juce::String& instrumentation,
+                                           float tempo, float duration, int numSamples,
+                                           float temperature, int topK, float topP, int cfg,
+                                           const juce::File& audioInput)
+{
+    if (generating.load())
+        return;
+
+    generating.store (true);
+    {
+        std::lock_guard<std::mutex> lock (errorMutex);
+        generationError.clear();
+    }
+
+    std::thread ([this, prompt, instrumentation, tempo, duration, numSamples,
+                  temperature, topK, topP, cfg, audioInput]()
+    {
+        performGeneration (prompt, instrumentation, tempo, duration, numSamples,
+                           temperature, topK, topP, cfg, audioInput);
+        generating.store (false);
+    }).detach();
+}
+
+void MusicGenVSTProcessor::performGeneration (juce::String prompt, juce::String instrumentation,
+                                               float tempo, float duration, int numSamples,
+                                               float temperature, int topK, float topP, int cfg,
+                                               juce::File audioInput)
+{
+    juce::String fullPrompt = prompt;
+    if (tempo > 0.0f)
+        fullPrompt += " " + juce::String (tempo, 0) + " BPM";
+    if (instrumentation.isNotEmpty())
+        fullPrompt += " " + instrumentation;
+
+    juce::URL url ("http://127.0.0.1:55000/");
+
+    url = url.withParameter ("prompt", fullPrompt.toLowerCase())
+             .withParameter ("userid", userId)
+             .withParameter ("Temperature", juce::String (temperature))
+             .withParameter ("Top K", juce::String (topK))
+             .withParameter ("Top P", juce::String (topP))
+             .withParameter ("Classifier Free Guidance", juce::String (cfg))
+             .withParameter ("Duration", juce::String (duration))
+             .withParameter ("Samples", juce::String (numSamples));
+
+    if (audioInput.existsAsFile())
+        url = url.withFileToUpload ("audioInput", audioInput, "audio/wav");
+
+    auto stream = url.createInputStream (
+        juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
+            .withConnectionTimeoutMs (5000)
+            .withNumRedirectsToFollow (0));
+
+    if (stream == nullptr)
+    {
+        std::lock_guard<std::mutex> lock (errorMutex);
+        generationError = "Local server not found. Make sure the server is running on localhost:55000.";
+        return;
+    }
+
+    auto responseText = stream->readEntireStreamAsString();
+    auto json = juce::JSON::parse (responseText);
+
+    if (! json.isObject())
+    {
+        std::lock_guard<std::mutex> lock (errorMutex);
+        generationError = "Invalid response from server.";
+        return;
+    }
+
+    bool success = json.getProperty ("success", false);
+    if (! success)
+    {
+        std::lock_guard<std::mutex> lock (errorMutex);
+        generationError = "Server returned an error.";
+        return;
+    }
+
+    auto downloadLinks = json.getProperty ("download_links", juce::var());
+    if (! downloadLinks.isArray())
+        return;
+
+    auto now = juce::Time::getCurrentTime();
+    juce::String dirName = prompt.replaceCharacters (" /\\:*?\"<>|", "__________")
+                               + "_" + juce::String (tempo, 0) + "bpm"
+                               + "_" + now.formatted ("%Y%m%d_%H%M%S");
+    auto outputDir = getGeneratedDir().getChildFile (dirName);
+    outputDir.createDirectory();
+
+    std::vector<GeneratedSample> newSamples;
+    for (int i = 0; i < downloadLinks.size(); ++i)
+    {
+        juce::String link = downloadLinks[i].toString();
+        juce::URL downloadUrl ("http://127.0.0.1:55000" + link);
+
+        auto dlOptions = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+                             .withConnectionTimeoutMs (30000);
+        auto dlStream = downloadUrl.createInputStream (dlOptions);
+        if (dlStream == nullptr)
+            continue;
+
+        juce::String filename = link.fromLastOccurrenceOf ("/", false, false);
+        auto destFile = outputDir.getChildFile (filename);
+
+        {
+            juce::FileOutputStream fos (destFile);
+            if (fos.openedOk())
+            {
+                fos.writeFromInputStream (*dlStream, -1);
+                fos.flush();
+            }
+        }
+
+        GeneratedSample sample;
+        sample.name = filename;
+        if (loadAudioFile (destFile, sample.buffer, sample.sampleRate))
+            newSamples.push_back (std::move (sample));
+    }
+
+    {
+        std::lock_guard<std::mutex> lock (samplesMutex);
+        generatedSamples = std::move (newSamples);
+        playingSampleIndex = -1;
+        playbackPosition = 0;
+    }
+}
+
+juce::String MusicGenVSTProcessor::getGenerationError() const
+{
+    std::lock_guard<std::mutex> lock (errorMutex);
+    return generationError;
+}
+
+int MusicGenVSTProcessor::getNumGeneratedSamples() const
+{
+    std::lock_guard<std::mutex> lock (samplesMutex);
+    return (int) generatedSamples.size();
+}
+
+juce::String MusicGenVSTProcessor::getGeneratedSampleName (int index) const
+{
+    std::lock_guard<std::mutex> lock (samplesMutex);
+    if (index >= 0 && index < (int) generatedSamples.size())
+        return generatedSamples[(size_t) index].name;
+    return {};
+}
+
+void MusicGenVSTProcessor::playGeneratedSample (int index)
+{
+    std::lock_guard<std::mutex> lock (samplesMutex);
+    if (index >= 0 && index < (int) generatedSamples.size())
+    {
+        playingSampleIndex = index;
+        playbackPosition = 0;
+    }
+}
+
+void MusicGenVSTProcessor::stopPlayback()
+{
+    std::lock_guard<std::mutex> lock (samplesMutex);
+    playingSampleIndex = -1;
+    playbackPosition = 0;
+}
+
+//==============================================================================
+bool MusicGenVSTProcessor::loadAudioFile (const juce::File& file, juce::AudioBuffer<float>& buffer, double& fileSampleRate)
+{
+    std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
+    if (reader == nullptr)
+        return false;
+
+    fileSampleRate = reader->sampleRate;
+    buffer.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);
+    reader->read (&buffer, 0, (int) reader->lengthInSamples, 0, true, true);
+    return true;
+}
+
+juce::File MusicGenVSTProcessor::getGeneratedDir() const
+{
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+               .getChildFile ("MusicGenVST")
+               .getChildFile ("generated");
+}
+
+//==============================================================================
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new MusicGenVSTProcessor();
