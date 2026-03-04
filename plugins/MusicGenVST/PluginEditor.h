@@ -142,6 +142,155 @@ public:
 };
 
 //==============================================================================
+class NumberBox final : public juce::Component
+{
+public:
+    NumberBox (double minVal, double maxVal, double defaultVal, int decimals)
+        : minimum (minVal), maximum (maxVal), value (defaultVal), numDecimals (decimals)
+    {
+        editor.setFont (juce::FontOptions (14.0f));
+        editor.setJustification (juce::Justification::centred);
+        editor.setMultiLine (false);
+        editor.setScrollbarsShown (false);
+
+        if (decimals > 0)
+            editor.setInputRestrictions (10, "0123456789.");
+        else
+            editor.setInputRestrictions (10, "0123456789");
+
+        updateText();
+        editor.setVisible (false);
+        addAndMakeVisible (editor);
+
+        editor.onReturnKey = [this] { commitEdit(); };
+        editor.onEscapeKey = [this] { cancelEdit(); };
+        editor.onFocusLost = [this] { commitEdit(); };
+    }
+
+    void setFont (const juce::Font& f) { font = f; editor.setFont (f); }
+
+    double getValue() const { return value; }
+
+    void setValue (double newValue)
+    {
+        value = juce::jlimit (minimum, maximum, newValue);
+        updateText();
+        repaint();
+    }
+
+    std::function<void()> onValueChange;
+
+    void paint (juce::Graphics& g) override
+    {
+        if (editor.isVisible())
+            return;
+
+        auto bounds = getLocalBounds().toFloat();
+        g.setColour (AbletonColours::inputBg);
+        g.fillRoundedRectangle (bounds, 3.0f);
+        g.setColour (AbletonColours::border);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 3.0f, 1.0f);
+
+        g.setColour (AbletonColours::text);
+        g.setFont (font);
+        g.drawText (formatValue(), getLocalBounds(), juce::Justification::centred);
+    }
+
+    void resized() override
+    {
+        editor.setBounds (getLocalBounds());
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.getNumberOfClicks() >= 2)
+        {
+            startEdit();
+            return;
+        }
+        dragStartValue = value;
+        dragStartY = e.getPosition().getY();
+        dragging = false;
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        dragging = true;
+        double sensitivity = (numDecimals > 0) ? 0.01 : 1.0;
+        double delta = static_cast<double> (dragStartY - e.getPosition().getY()) * sensitivity;
+        double range = maximum - minimum;
+        if (range > 100.0 && numDecimals == 0)
+            sensitivity = juce::jmax (1.0, range / 200.0);
+        else if (range > 10.0 && numDecimals > 0)
+            sensitivity = range / 500.0;
+
+        delta = static_cast<double> (dragStartY - e.getPosition().getY()) * sensitivity;
+        setValue (dragStartValue + delta);
+        if (onValueChange)
+            onValueChange();
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        dragging = false;
+    }
+
+    juce::MouseCursor getMouseCursor() override
+    {
+        return juce::MouseCursor::UpDownResizeCursor;
+    }
+
+private:
+    double minimum, maximum, value;
+    int numDecimals;
+    juce::Font font { juce::FontOptions (14.0f) };
+    juce::TextEditor editor;
+    double dragStartValue = 0.0;
+    int dragStartY = 0;
+    bool dragging = false;
+
+    juce::String formatValue() const
+    {
+        if (numDecimals > 0)
+            return juce::String (value, numDecimals);
+        return juce::String (static_cast<int> (value));
+    }
+
+    void updateText()
+    {
+        editor.setText (formatValue(), juce::dontSendNotification);
+    }
+
+    void startEdit()
+    {
+        editor.setVisible (true);
+        editor.setText (formatValue(), juce::dontSendNotification);
+        editor.selectAll();
+        editor.grabKeyboardFocus();
+        repaint();
+    }
+
+    void commitEdit()
+    {
+        double parsed = editor.getText().getDoubleValue();
+        setValue (parsed);
+        editor.setVisible (false);
+        repaint();
+        if (onValueChange)
+            onValueChange();
+    }
+
+    void cancelEdit()
+    {
+        editor.setVisible (false);
+        updateText();
+        repaint();
+    }
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NumberBox)
+};
+
+//==============================================================================
 class MusicGenVSTEditor final : public juce::AudioProcessorEditor
 {
 public:
@@ -164,11 +313,11 @@ private:
     juce::Label instrumentationLabel;
     juce::TextEditor instrumentationInput;
     juce::Label lengthLabel;
-    juce::TextEditor lengthInput;
+    NumberBox lengthInput { 0.25, 30.0, 8.0, 2 };
     juce::Label bpmLabel;
-    juce::TextEditor bpmInput;
+    NumberBox bpmInput { 1.0, 300.0, 120.0, 2 };
     juce::Label samplesLabel;
-    juce::TextEditor samplesInput;
+    NumberBox samplesInput { 1.0, 10.0, 1.0, 0 };
     juce::TextButton generateButton;
 
     // Right panel

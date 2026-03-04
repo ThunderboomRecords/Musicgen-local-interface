@@ -224,7 +224,6 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     lengthLabel.setText ("Length", juce::dontSendNotification);
     lengthLabel.setFont (customFont);
     addAndMakeVisible (lengthLabel);
-    lengthInput.setInputRestrictions (5, "0123456789.");
     lengthInput.setFont (customFont);
     addAndMakeVisible (lengthInput);
 
@@ -232,7 +231,6 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     bpmLabel.setText ("BPM", juce::dontSendNotification);
     bpmLabel.setFont (customFont);
     addAndMakeVisible (bpmLabel);
-    bpmInput.setInputRestrictions (6, "0123456789.");
     bpmInput.setFont (customFont);
     addAndMakeVisible (bpmInput);
 
@@ -240,7 +238,6 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     samplesLabel.setText ("Samples", juce::dontSendNotification);
     samplesLabel.setFont (customFont);
     addAndMakeVisible (samplesLabel);
-    samplesInput.setInputRestrictions (2, "0123456789");
     samplesInput.setFont (customFont);
     addAndMakeVisible (samplesInput);
 
