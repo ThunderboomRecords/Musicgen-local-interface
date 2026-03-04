@@ -37,7 +37,7 @@ AbletonLookAndFeel::AbletonLookAndFeel()
     setColour (juce::TextButton::textColourOnId,       AbletonColours::text);
 
     // TextEditor
-    setColour (juce::TextEditor::backgroundColourId,   AbletonColours::inputBg);
+    setColour (juce::TextEditor::backgroundColourId,   juce::Colours::transparentBlack);
     setColour (juce::TextEditor::textColourId,         AbletonColours::text);
     setColour (juce::TextEditor::outlineColourId,      AbletonColours::border);
     setColour (juce::TextEditor::focusedOutlineColourId, AbletonColours::accent);
@@ -134,8 +134,11 @@ void AbletonLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& bu
 }
 
 void AbletonLookAndFeel::fillTextEditorBackground (juce::Graphics& g, int width, int height,
-                                                     juce::TextEditor&)
+                                                     juce::TextEditor& editor)
 {
+    if (editor.getName() == "underline")
+        return; // No filled background — underline style
+
     g.setColour (AbletonColours::inputBg);
     g.fillRoundedRectangle (0.0f, 0.0f, static_cast<float> (width),
                             static_cast<float> (height), 3.0f);
@@ -144,8 +147,15 @@ void AbletonLookAndFeel::fillTextEditorBackground (juce::Graphics& g, int width,
 void AbletonLookAndFeel::drawTextEditorOutline (juce::Graphics& g, int width, int height,
                                                   juce::TextEditor& editor)
 {
-    auto colour = editor.hasKeyboardFocus (true) ? AbletonColours::accent : AbletonColours::border;
-    g.setColour (colour);
+    if (editor.getName() == "underline")
+    {
+        g.setColour (AbletonColours::border);
+        g.drawLine (0.0f, static_cast<float> (height) - 0.5f,
+                    static_cast<float> (width), static_cast<float> (height) - 0.5f, 1.0f);
+        return;
+    }
+
+    g.setColour (AbletonColours::border);
     g.drawRoundedRectangle (0.5f, 0.5f, static_cast<float> (width) - 1.0f,
                             static_cast<float> (height) - 1.0f, 3.0f, 1.0f);
 }
@@ -197,17 +207,17 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     addAndMakeVisible (uploadFileButton);
 
     // Prompt
-    promptLabel.setText ("Prompt", juce::dontSendNotification);
-    promptLabel.setFont (customFont);
-    addAndMakeVisible (promptLabel);
+    promptInput.setName ("underline");
+    promptInput.setTextToShowWhenEmpty ("A hip hop style beat", AbletonColours::light1);
     promptInput.setFont (customFont);
+    promptInput.setJustification (juce::Justification::centredLeft);
     addAndMakeVisible (promptInput);
 
     // Instrumentation
-    instrumentationLabel.setText ("Instrumentation", juce::dontSendNotification);
-    instrumentationLabel.setFont (customFont);
-    addAndMakeVisible (instrumentationLabel);
+    instrumentationInput.setName ("underline");
+    instrumentationInput.setTextToShowWhenEmpty ("Drums, adds a bassline", AbletonColours::light1);
     instrumentationInput.setFont (customFont);
+    instrumentationInput.setJustification (juce::Justification::centredLeft);
     addAndMakeVisible (instrumentationInput);
 
     // Length
@@ -346,9 +356,9 @@ void MusicGenVSTEditor::paint (juce::Graphics& g)
     const int buttonMargin = static_cast<int> (12 * scale);
 
     const int leftContentH = buttonH + buttonMargin
-                           + labelH + inputH + margin
-                           + labelH + inputH + margin
-                           + (labelH + inputH)
+                           + inputH + margin
+                           + inputH + margin
+                           + inputH
                            + buttonMargin + buttonH
                            + buttonMargin + buttonH;
     const int panelH = leftContentH + innerPad * 2;
@@ -394,7 +404,7 @@ void MusicGenVSTEditor::resized()
     const int leftContentH = buttonH + buttonMargin          // Upload File + gap
                            + labelH + inputH + margin         // Prompt
                            + labelH + inputH + margin         // Instrumentation
-                           + (labelH + inputH)                // Number row
+                           + inputH                             // Number row
                            + buttonMargin + buttonH           // Generate
                            + buttonMargin + buttonH;          // Advanced toggle
     const int panelH = leftContentH + innerPad * 2;
@@ -417,30 +427,28 @@ void MusicGenVSTEditor::resized()
     left.removeFromTop (buttonMargin);
 
     // Prompt
-    promptLabel.setBounds (left.removeFromTop (labelH));
     promptInput.setBounds (left.removeFromTop (inputH));
     left.removeFromTop (margin);
 
     // Instrumentation
-    instrumentationLabel.setBounds (left.removeFromTop (labelH));
     instrumentationInput.setBounds (left.removeFromTop (inputH));
     left.removeFromTop (margin);
 
-    // Length / BPM / Samples row
-    auto numberRow = left.removeFromTop (labelH + inputH);
+    // Length / BPM / Samples row (label + input side-by-side)
+    auto numberRow = left.removeFromTop (inputH);
     const int fieldWidth = (numberRow.getWidth() - margin * 2) / 3;
 
     auto lengthArea = numberRow.removeFromLeft (fieldWidth);
-    lengthLabel.setBounds (lengthArea.removeFromTop (labelH));
+    lengthLabel.setBounds (lengthArea.removeFromLeft (lengthArea.getWidth() / 2));
     lengthInput.setBounds (lengthArea);
     numberRow.removeFromLeft (margin);
 
     auto bpmArea = numberRow.removeFromLeft (fieldWidth);
-    bpmLabel.setBounds (bpmArea.removeFromTop (labelH));
+    bpmLabel.setBounds (bpmArea.removeFromLeft (bpmArea.getWidth() / 2));
     bpmInput.setBounds (bpmArea);
     numberRow.removeFromLeft (margin);
 
-    samplesLabel.setBounds (numberRow.removeFromTop (labelH));
+    samplesLabel.setBounds (numberRow.removeFromLeft (numberRow.getWidth() / 2));
     samplesInput.setBounds (numberRow);
 
     left.removeFromTop (buttonMargin);
