@@ -352,6 +352,8 @@ void MusicGenVSTEditor::paint (juce::Graphics& g)
                            + buttonMargin + buttonH
                            + buttonMargin + buttonH;
     const int panelH = leftContentH + innerPad * 2;
+    const int verticalGap = (bounds.getHeight() - panelH) / 2;
+    bounds.removeFromTop (verticalGap);
 
     auto topArea = bounds.removeFromTop (panelH);
 
@@ -396,6 +398,9 @@ void MusicGenVSTEditor::resized()
                            + buttonMargin + buttonH           // Generate
                            + buttonMargin + buttonH;          // Advanced toggle
     const int panelH = leftContentH + innerPad * 2;
+    const int availableH = advancedVisible ? bounds.getHeight() - scaledAdvHeight : bounds.getHeight();
+    const int verticalGap = (availableH - panelH) / 2;
+    bounds.removeFromTop (verticalGap);
 
     // Reserve space for advanced section if visible
     auto topArea = bounds.removeFromTop (panelH);
