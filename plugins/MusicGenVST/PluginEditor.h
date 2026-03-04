@@ -18,6 +18,25 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "../MusicGen/src/space-grotesk.h"
+
+//==============================================================================
+class SampleListModel final : public juce::ListBoxModel
+{
+public:
+    int getNumRows() override { return 10; }
+
+    void paintListBoxItem (int rowNumber, juce::Graphics& g,
+                           int width, int height, bool rowIsSelected) override
+    {
+        if (rowIsSelected)
+            g.fillAll (juce::Colours::lightblue);
+
+        g.setColour (juce::Colours::black);
+        g.drawText (juce::String (rowNumber + 1), 0, 0, width, height,
+                    juce::Justification::centredLeft);
+    }
+};
 
 //==============================================================================
 class MusicGenVSTEditor final : public juce::AudioProcessorEditor
@@ -32,6 +51,42 @@ public:
 
 private:
     MusicGenVSTProcessor& processorRef;
+    juce::Font customFont;
+
+    // Left panel
+    juce::TextButton uploadFileButton;
+    juce::Label promptLabel;
+    juce::TextEditor promptInput;
+    juce::Label instrumentationLabel;
+    juce::TextEditor instrumentationInput;
+    juce::Label lengthLabel;
+    juce::TextEditor lengthInput;
+    juce::Label bpmLabel;
+    juce::TextEditor bpmInput;
+    juce::Label samplesLabel;
+    juce::TextEditor samplesInput;
+    juce::TextButton generateButton;
+
+    // Right panel
+    SampleListModel sampleListModel;
+    juce::ListBox sampleList;
+
+    // Advanced section (collapsible)
+    juce::TextButton advancedToggle;
+    bool advancedVisible = false;
+
+    juce::Slider temperatureDial;
+    juce::Label temperatureLabel;
+    juce::Slider topKDial;
+    juce::Label topKLabel;
+    juce::Slider topPDial;
+    juce::Label topPLabel;
+    juce::Slider cfgDial;
+    juce::Label cfgLabel;
+
+    static constexpr int baseWidth = 728;
+    static constexpr int baseHeight = 330;
+    static constexpr int advancedHeight = 169;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MusicGenVSTEditor)
 };

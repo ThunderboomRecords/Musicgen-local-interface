@@ -31,3 +31,5 @@ Length cannot be 0, max 30
 
 The Prompt and instrumentation are input boxes.
 The Upload File button is a regular JUCE button which opens a context window for the user to select an audio file to give to the AI model.
+
+The generate button is just a button.
