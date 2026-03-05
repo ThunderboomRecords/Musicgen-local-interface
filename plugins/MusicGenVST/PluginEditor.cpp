@@ -81,7 +81,7 @@ void AbletonLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y,
                              rotaryStartAngle, rotaryEndAngle, true);
         g.setColour (AbletonColours::border);
         g.strokePath (bgArc, juce::PathStrokeType (arcThickness,
-                      juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                      juce::PathStrokeType::curved, juce::PathStrokeType::butt));
     }
 
     // Value arc (filled portion)
@@ -93,16 +93,18 @@ void AbletonLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y,
                                 rotaryStartAngle, angle, true);
         g.setColour (AbletonColours::accent);
         g.strokePath (valueArc, juce::PathStrokeType (arcThickness,
-                      juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                      juce::PathStrokeType::curved, juce::PathStrokeType::butt));
     }
 
-    // Thumb dot at current position
-    const float thumbRadius = arcThickness * 0.6f;
-    const float thumbX = centreX + radius * std::cos (angle - juce::MathConstants<float>::halfPi);
-    const float thumbY = centreY + radius * std::sin (angle - juce::MathConstants<float>::halfPi);
+    // Tick mark pointing inward at current position
+    const float tickLength = radius * 0.5f;
+    const float angleRad = angle - juce::MathConstants<float>::halfPi;
+    const float outerX = centreX + (radius + arcThickness * 0.5f) * std::cos (angleRad);
+    const float outerY = centreY + (radius + arcThickness * 0.5f) * std::sin (angleRad);
+    const float innerX = centreX + (radius - tickLength) * std::cos (angleRad);
+    const float innerY = centreY + (radius - tickLength) * std::sin (angleRad);
     g.setColour (AbletonColours::accent);
-    g.fillEllipse (thumbX - thumbRadius, thumbY - thumbRadius,
-                   thumbRadius * 2.0f, thumbRadius * 2.0f);
+    g.drawLine (outerX, outerY, innerX, innerY, arcThickness * 0.4f);
 }
 
 void AbletonLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button,

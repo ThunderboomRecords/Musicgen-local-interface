@@ -346,7 +346,7 @@ private:
 
     static constexpr int baseWidth = 728;
     static constexpr int baseHeight = 350;
-    static constexpr int advancedHeight = 169;
+    static constexpr int advancedHeight = 85;
 
     ListSnapConstrainer constrainer;
 
