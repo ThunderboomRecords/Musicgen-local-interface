@@ -158,9 +158,16 @@ public:
         else
             editor.setInputRestrictions (10, "0123456789");
 
+        editor.setColour (juce::TextEditor::backgroundColourId, AbletonColours::inputBg);
+        editor.setColour (juce::TextEditor::textColourId, AbletonColours::text);
+        editor.setColour (juce::TextEditor::outlineColourId, AbletonColours::border);
+        editor.setColour (juce::TextEditor::focusedOutlineColourId, AbletonColours::accent);
+        editor.setColour (juce::TextEditor::highlightColourId, AbletonColours::accent);
+        editor.setColour (juce::TextEditor::highlightedTextColourId, AbletonColours::text);
+        editor.setColour (juce::CaretComponent::caretColourId, AbletonColours::text);
+
         updateText();
-        editor.setVisible (false);
-        addAndMakeVisible (editor);
+        addChildComponent (editor);
 
         editor.onReturnKey = [this] { commitEdit(); };
         editor.onEscapeKey = [this] { cancelEdit(); };
