@@ -112,6 +112,29 @@ void AbletonLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& 
                                                  bool isHighlighted, bool isDown)
 {
     auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
+
+    if (button.getComponentID() == "uploadFileButton")
+    {
+        // Transparent background with dashed outline
+        auto dashColour = AbletonColours::bgDark;
+        if (isDown)
+            dashColour = dashColour.brighter (0.15f);
+        else if (isHighlighted)
+            dashColour = dashColour.brighter (0.08f);
+
+        juce::Path outline;
+        outline.addRoundedRectangle (bounds, 8.0f);
+
+        float dashLengths[] = { 6.0f, 4.0f };
+        juce::PathStrokeType strokeType (1.5f);
+        juce::Path dashedPath;
+        strokeType.createDashedStroke (dashedPath, outline, dashLengths, 2);
+
+        g.setColour (dashColour);
+        g.fillPath (dashedPath);
+        return;
+    }
+
     auto baseColour = button.getToggleState() ? AbletonColours::accent : AbletonColours::bgDark;
 
     if (isDown)
@@ -131,6 +154,60 @@ void AbletonLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& bu
                     ? button.findColour (juce::TextButton::textColourOnId)
                     : button.findColour (juce::TextButton::textColourOffId);
     g.setColour (colour);
+
+    if (button.getComponentID() == "uploadFileButton")
+    {
+        g.setColour (juce::Colours::black);
+
+        auto bounds = button.getLocalBounds();
+        auto textWidth = customFont.getStringWidth (button.getButtonText());
+        float iconSize = static_cast<float> (bounds.getHeight()) * 0.4f;
+        float gap = 6.0f;
+        float totalWidth = static_cast<float> (textWidth) + gap + iconSize;
+        float startX = (static_cast<float> (bounds.getWidth()) - totalWidth) * 0.5f;
+
+        // Draw text
+        g.drawText (button.getButtonText(),
+                    static_cast<int> (startX), 0,
+                    textWidth, bounds.getHeight(),
+                    juce::Justification::centredLeft);
+
+        // Draw down-arrow icon (tray with arrow pointing down)
+        float iconX = startX + static_cast<float> (textWidth) + gap;
+        float iconY = (static_cast<float> (bounds.getHeight()) - iconSize) * 0.5f;
+
+        // Arrow pointing down
+        float arrowCentreX = iconX + iconSize * 0.5f;
+        float arrowTop = iconY + iconSize * 0.1f;
+        float arrowBottom = iconY + iconSize * 0.6f;
+        float arrowWidth = iconSize * 0.35f;
+
+        // Vertical stem
+        g.drawLine (arrowCentreX, arrowTop, arrowCentreX, arrowBottom, 1.5f);
+
+        // Arrow head
+        juce::Path arrowHead;
+        arrowHead.startNewSubPath (arrowCentreX - arrowWidth, arrowBottom - arrowWidth * 0.7f);
+        arrowHead.lineTo (arrowCentreX, arrowBottom);
+        arrowHead.lineTo (arrowCentreX + arrowWidth, arrowBottom - arrowWidth * 0.7f);
+        g.strokePath (arrowHead, juce::PathStrokeType (1.5f));
+
+        // Tray (U shape at bottom)
+        float trayTop = iconY + iconSize * 0.65f;
+        float trayBottom = iconY + iconSize * 0.9f;
+        float trayLeft = iconX + iconSize * 0.1f;
+        float trayRight = iconX + iconSize * 0.9f;
+
+        juce::Path tray;
+        tray.startNewSubPath (trayLeft, trayTop);
+        tray.lineTo (trayLeft, trayBottom);
+        tray.lineTo (trayRight, trayBottom);
+        tray.lineTo (trayRight, trayTop);
+        g.strokePath (tray, juce::PathStrokeType (1.5f));
+
+        return;
+    }
+
     g.drawText (button.getButtonText(), button.getLocalBounds(),
                 juce::Justification::centred);
 }
@@ -204,8 +281,9 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     setLookAndFeel (&abletonLnF);
     customFont = abletonLnF.customFont;
 
-    // Upload File button
-    uploadFileButton.setButtonText ("Upload File");
+    // Upload Audio File button
+    uploadFileButton.setButtonText ("Upload Audio File");
+    uploadFileButton.setComponentID ("uploadFileButton");
     addAndMakeVisible (uploadFileButton);
 
     // Prompt
