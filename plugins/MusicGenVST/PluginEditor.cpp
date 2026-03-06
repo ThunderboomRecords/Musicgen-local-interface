@@ -161,7 +161,7 @@ void AbletonLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& bu
 
         auto bounds = button.getLocalBounds();
         auto textWidth = customFont.getStringWidth (button.getButtonText());
-        float iconSize = static_cast<float> (bounds.getHeight()) * 0.4f;
+        float iconSize = customFont.getHeight();
         float gap = 6.0f;
         float totalWidth = static_cast<float> (textWidth) + gap + iconSize;
         float startX = (static_cast<float> (bounds.getWidth()) - totalWidth) * 0.5f;
@@ -499,8 +499,21 @@ void MusicGenVSTEditor::resized()
     // --- Left panel ---
     auto left = leftPanel.withTrimmedRight (static_cast<int> (5 * scale)).reduced (innerPad);
 
-    // Upload File button
-    uploadFileButton.setBounds (left.removeFromTop (buttonH));
+    // Layout bottom-up for fixed elements, upload button gets remaining space
+    // Reserve space from bottom: Advanced toggle, Generate, Number row, Instrumentation, Prompt
+    int bottomContentH = buttonH                              // Advanced toggle
+                       + buttonMargin + buttonH               // Generate
+                       + buttonMargin + inputH                // Number row
+                       + margin + inputH                      // Instrumentation
+                       + margin + inputH                      // Prompt
+                       + buttonMargin;                        // gap after upload button
+
+    int uploadH = left.getHeight() - bottomContentH;
+    if (uploadH < buttonH)
+        uploadH = buttonH;
+
+    // Upload Audio File button (fills remaining top space)
+    uploadFileButton.setBounds (left.removeFromTop (uploadH));
     left.removeFromTop (buttonMargin);
 
     // Prompt
