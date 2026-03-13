@@ -399,8 +399,24 @@ void MusicGenVSTProcessor::performGeneration (AceStepParams params)
             return;
         }
 
-        // ace-qwen3 produces request_N0.json (appends "0" before extension)
-        auto intermediateFile = outputDir.getChildFile ("request_" + juce::String (sampleIdx) + "0.json");
+        // ace-qwen3 produces a JSON file derived from input name.
+        // Find the newest .json file in the output dir that isn't our original request.
+        juce::File intermediateFile;
+        {
+            auto jsonFiles = outputDir.findChildFiles (juce::File::findFiles, false, "*.json");
+            juce::Time newest;
+            for (auto& jf : jsonFiles)
+            {
+                if (jf == requestFile)
+                    continue;
+                auto mod = jf.getLastModificationTime();
+                if (intermediateFile == juce::File{} || mod > newest)
+                {
+                    intermediateFile = jf;
+                    newest = mod;
+                }
+            }
+        }
         if (! intermediateFile.existsAsFile())
         {
             std::lock_guard<std::mutex> lock (errorMutex);
@@ -408,6 +424,7 @@ void MusicGenVSTProcessor::performGeneration (AceStepParams params)
                             + juce::String (sampleIdx + 1) + ".";
             return;
         }
+        fprintf (stderr, "[MusicGenVST] Intermediate JSON: %s\n", intermediateFile.getFullPathName().toRawUTF8());
 
         // Step 2: Run dit-vae (synthesize audio)
         {
@@ -428,8 +445,47 @@ void MusicGenVSTProcessor::performGeneration (AceStepParams params)
 
         if (params.srcAudioFile.isNotEmpty())
         {
-            ditArgs.add ("--src-audio");
-            ditArgs.add (params.srcAudioFile);
+            fprintf (stderr, "[MusicGenVST] src-audio path: %s\n", params.srcAudioFile.toRawUTF8());
+            fprintf (stderr, "[MusicGenVST] src-audio exists: %s\n",
+                     juce::File (params.srcAudioFile).existsAsFile() ? "yes" : "no");
+
+            // dit-vae only supports 16-bit WAV. Convert any input audio to
+            // 16-bit 48kHz mono WAV to avoid format errors.
+            auto srcFile = juce::File (params.srcAudioFile);
+            auto convertedFile = outputDir.getChildFile ("src_audio_16bit.wav");
+            std::unique_ptr<juce::AudioFormatReader> reader (
+                formatManager.createReaderFor (srcFile));
+
+            if (reader != nullptr)
+            {
+                juce::WavAudioFormat wavFormat;
+                std::unique_ptr<juce::AudioFormatWriter> writer (
+                    wavFormat.createWriterFor (
+                        new juce::FileOutputStream (convertedFile),
+                        48000.0, 1, 16, {}, 0));
+
+                if (writer != nullptr)
+                {
+                    writer->writeFromAudioReader (*reader, 0, reader->lengthInSamples);
+                    writer.reset();
+                    fprintf (stderr, "[MusicGenVST] Converted src-audio to 16-bit WAV: %s\n",
+                             convertedFile.getFullPathName().toRawUTF8());
+                    ditArgs.add ("--src-audio");
+                    ditArgs.add (convertedFile.getFullPathName());
+                }
+                else
+                {
+                    fprintf (stderr, "[MusicGenVST] Failed to create WAV writer, using original\n");
+                    ditArgs.add ("--src-audio");
+                    ditArgs.add (params.srcAudioFile);
+                }
+            }
+            else
+            {
+                fprintf (stderr, "[MusicGenVST] Failed to read src-audio, using original\n");
+                ditArgs.add ("--src-audio");
+                ditArgs.add (params.srcAudioFile);
+            }
         }
 
         if (! runChildProcess (ditVae.getFullPathName(), ditArgs))
@@ -440,15 +496,31 @@ void MusicGenVSTProcessor::performGeneration (AceStepParams params)
             return;
         }
 
-        // dit-vae produces request_N00.wav (appends another "0" to the intermediate name)
-        auto wavFile = outputDir.getChildFile ("request_" + juce::String (sampleIdx) + "00.wav");
+        // dit-vae produces a .wav or .mp3 file.
+        // Find the newest audio file in the output dir.
+        juce::File wavFile;
+        {
+            auto audioFiles = outputDir.findChildFiles (juce::File::findFiles, false, "*.wav");
+            audioFiles.addArray (outputDir.findChildFiles (juce::File::findFiles, false, "*.mp3"));
+            juce::Time newest;
+            for (auto& af : audioFiles)
+            {
+                auto mod = af.getLastModificationTime();
+                if (wavFile == juce::File{} || mod > newest)
+                {
+                    wavFile = af;
+                    newest = mod;
+                }
+            }
+        }
         if (! wavFile.existsAsFile())
         {
             std::lock_guard<std::mutex> lock (errorMutex);
-            generationError = "Audio synthesis did not produce WAV file for sample "
+            generationError = "Audio synthesis did not produce output file for sample "
                             + juce::String (sampleIdx + 1) + ".";
             return;
         }
+        fprintf (stderr, "[MusicGenVST] Output audio: %s\n", wavFile.getFullPathName().toRawUTF8());
 
         // Rename to something meaningful
         auto destFile = outputDir.getChildFile ("sample_" + juce::String (sampleIdx + 1) + ".wav");
@@ -482,11 +554,30 @@ bool MusicGenVSTProcessor::runChildProcess (const juce::String& executable,
     fullArgs.add (executable);
     fullArgs.addArray (args);
 
+    fprintf (stderr, "[MusicGenVST] Running: %s\n", fullArgs.joinIntoString (" ").toRawUTF8());
+
     if (! process.start (fullArgs))
+    {
+        fprintf (stderr, "[MusicGenVST] Failed to start process\n");
         return false;
+    }
 
     // Wait for the process to finish (blocking — we're on a background thread)
-    return process.waitForProcessToFinish (600000); // 10 minute timeout
+    if (! process.waitForProcessToFinish (600000))
+    {
+        fprintf (stderr, "[MusicGenVST] Process timed out\n");
+        process.kill();
+        return false;
+    }
+
+    auto output = process.readAllProcessOutput();
+    if (output.isNotEmpty())
+        fprintf (stderr, "[MusicGenVST] Process output: %s\n", output.toRawUTF8());
+
+    auto exitCode = process.getExitCode();
+    fprintf (stderr, "[MusicGenVST] Exit code: %d\n", exitCode);
+
+    return exitCode == 0;
 }
 
 juce::String MusicGenVSTProcessor::getGenerationError() const

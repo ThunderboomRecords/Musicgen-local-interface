@@ -891,23 +891,37 @@ void MusicGenVSTEditor::filesDropped (const juce::StringArray& files, int, int)
     {
         auto file = juce::File (f);
         auto ext = file.getFileExtension().toLowerCase();
+
+        fprintf (stderr, "[MusicGenVST] filesDropped: path=%s exists=%s\n",
+                 f.toRawUTF8(), file.existsAsFile() ? "yes" : "no");
+
         if (ext == ".wav" || ext == ".mp3" || ext == ".aif"
             || ext == ".aiff" || ext == ".flac")
         {
-            // Files dragged from DAWs like Ableton may come from a temporary
-            // path that gets cleaned up. Copy to a stable temp location to
-            // ensure the file remains accessible at generation time.
-            // This is safe for external files too (just a redundant copy).
-            auto tempDir = juce::File::getSpecialLocation (
-                juce::File::tempDirectory).getChildFile ("MusicGenVST");
-            tempDir.createDirectory();
-            auto dest = tempDir.getNonexistentChildFile (
-                file.getFileNameWithoutExtension(), ext);
+            // Copy to a stable location so DAW temp files survive until
+            // generation runs. Also avoids path issues with special chars
+            // or sandboxed locations.
+            auto stableDir = juce::File::getSpecialLocation (
+                juce::File::userApplicationDataDirectory)
+                    .getChildFile ("MusicGenVST")
+                    .getChildFile ("imports");
+            stableDir.createDirectory();
+            auto dest = stableDir.getChildFile (file.getFileName());
 
-            if (file.existsAsFile() && file.copyFileTo (dest))
+            // Overwrite any previous import with the same name
+            if (dest.existsAsFile())
+                dest.deleteFile();
+
+            if (file.existsAsFile() && file.copyFileTo (dest) && dest.existsAsFile())
+            {
+                fprintf (stderr, "[MusicGenVST] filesDropped: copied to %s\n", dest.getFullPathName().toRawUTF8());
                 srcAudioFile = dest;
+            }
             else
+            {
+                fprintf (stderr, "[MusicGenVST] filesDropped: copy failed, using original %s\n", file.getFullPathName().toRawUTF8());
                 srcAudioFile = file;
+            }
 
             uploadFileButton.setButtonText (file.getFileName());
             break;
