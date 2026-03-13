@@ -382,6 +382,119 @@ static void setupDial (juce::Slider& dial, juce::Label& label, const juce::Strin
 }
 
 //==============================================================================
+// Prompt parsing helpers — extract keyscale, time signature, vocal language
+//==============================================================================
+static juce::String extractKeyscale (const juce::String& text)
+{
+    auto lower = text.toLowerCase();
+    const char* notes[] = { "a", "b", "c", "d", "e", "f", "g" };
+    const char* accs[]  = { "#", "b", "" };
+    const char* modes[] = {
+        "harmonic minor", "melodic minor",  // check longer modes first
+        "major", "minor", "dorian", "phrygian", "lydian", "mixolydian",
+        "aeolian", "locrian", "chromatic", "blues", "pentatonic"
+    };
+
+    for (auto n : notes)
+        for (auto a : accs)
+            for (auto m : modes)
+            {
+                auto key = juce::String (n) + a + " " + m;
+                if (lower.contains (key))
+                {
+                    // Capitalise note for the request: "C minor" not "c minor"
+                    auto result = key;
+                    result = result.substring (0, 1).toUpperCase() + result.substring (1);
+                    return result;
+                }
+            }
+
+    return {};
+}
+
+static juce::String extractTimeSignature (const juce::String& text)
+{
+    auto lower = text.toLowerCase();
+
+    // Match patterns like "3/4", "6/8", "4/4", "2/4" etc.
+    const char* sigs[] = { "6/", "3/", "2/", "4/" };
+    const char* vals[] = { "6",  "3",  "2",  "4"  };
+    for (int i = 0; i < 4; ++i)
+        if (lower.contains (sigs[i]))
+            return vals[i];
+
+    // Also match "waltz" → 3
+    if (lower.contains ("waltz"))
+        return "3";
+
+    return {};
+}
+
+static juce::String buildNegativePrompt (const juce::String& text)
+{
+    auto lower = text.toLowerCase();
+    juce::StringArray negatives;
+
+    // If instrumental (no vocals requested), suppress vocal-related content
+    bool hasVocals = lower.contains ("vocal") || lower.contains ("sing")
+                  || lower.contains ("voice") || lower.contains ("rap")
+                  || lower.contains ("choir");
+    if (! hasVocals)
+        negatives.addArray ({ "vocals", "singing", "voice" });
+
+    // Suppress instruments/qualities not mentioned — contrast what the user wants
+    struct NegRule { const char* keyword; std::initializer_list<const char*> suppress; };
+    static const NegRule rules[] = {
+        { "techno",    { "soft", "ambient", "slow", "acoustic", "guitar" } },
+        { "ambient",   { "drums", "percussion", "loud", "distortion" } },
+        { "acoustic",  { "synth", "electronic", "distortion", "808" } },
+        { "electronic",{ "acoustic", "guitar", "strings" } },
+        { "metal",     { "soft", "ambient", "piano", "flute" } },
+        { "jazz",      { "distortion", "808", "heavy" } },
+        { "classical", { "drums", "808", "distortion", "synth" } },
+        { "hip hop",   { "guitar", "strings", "flute", "classical" } },
+        { "rock",      { "soft", "ambient", "flute", "harp" } },
+        { "piano",     { "guitar", "drums", "bass", "synth" } },
+        { "guitar",    { "piano", "synth", "electronic" } },
+    };
+
+    for (auto& rule : rules)
+        if (lower.contains (rule.keyword))
+            for (auto s : rule.suppress)
+                if (! lower.contains (s) && ! negatives.contains (s))
+                    negatives.add (s);
+
+    // Always add general quality negatives
+    if (! negatives.contains ("noise"))
+        negatives.add ("noise");
+    if (! negatives.contains ("distorted"))
+        negatives.add ("distorted");
+
+    return negatives.joinIntoString (", ");
+}
+
+static juce::String extractVocalLanguage (const juce::String& text)
+{
+    auto lower = text.toLowerCase();
+
+    struct LangMap { const char* keyword; const char* code; };
+    static const LangMap langs[] = {
+        { "english",    "en" }, { "chinese",    "zh" }, { "japanese",   "ja" },
+        { "korean",     "ko" }, { "spanish",    "es" }, { "french",     "fr" },
+        { "german",     "de" }, { "ukrainian",  "uk" }, { "russian",    "ru" },
+        { "portuguese", "pt" }, { "italian",    "it" }, { "arabic",     "ar" },
+        { "turkish",    "tr" }, { "polish",     "pl" }, { "swedish",    "sv" },
+        { "dutch",      "nl" },
+    };
+
+    for (auto& l : langs)
+        if (lower.contains (l.keyword))
+            return l.code;
+
+    return {};
+}
+
+//==============================================================================
 // MusicGenVSTEditor
 //==============================================================================
 MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
@@ -456,6 +569,21 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
         params.duration = static_cast<int> (lengthInput.getValue());
         params.numSamples = static_cast<int> (samplesInput.getValue());
 
+        // Extract keyscale, time signature, vocal language from prompt/instrumentation
+        auto fullText = promptInput.getText() + " " + instruments;
+        auto ks = extractKeyscale (fullText);
+        if (ks.isNotEmpty())
+            params.keyscale = ks;
+        auto ts = extractTimeSignature (fullText);
+        if (ts.isNotEmpty())
+            params.timesignature = ts;
+        auto vl = extractVocalLanguage (fullText);
+        if (vl.isNotEmpty())
+            params.vocalLanguage = vl;
+
+        // Auto-generate negative prompt based on what user asked for
+        params.negativePrompt = buildNegativePrompt (fullText);
+
         // Advanced params
         params.lmTemperature = static_cast<float> (temperatureDial.getValue());
         params.lmCfgScale = static_cast<float> (cfgScaleDial.getValue());
@@ -500,7 +628,7 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
 
     // --- Advanced section components (4 dials) ---
     setupDial (temperatureDial, temperatureLabel, "Temperature", 0.0, 2.0, 0.01, 0.8, customFont, this);
-    setupDial (cfgScaleDial, cfgScaleLabel, "CFG Scale", 0.0, 10.0, 0.1, 2.5, customFont, this);
+    setupDial (cfgScaleDial, cfgScaleLabel, "CFG Scale", 0.0, 10.0, 0.1, 7.0, customFont, this);
     setupDial (topPDial, topPLabel, "Top P", 0.0, 1.0, 0.01, 0.9, customFont, this);
     setupDial (topKDial, topKLabel, "Top K", 0.0, 1000.0, 1.0, 0.0, customFont, this);
 

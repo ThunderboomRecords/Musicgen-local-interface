@@ -274,13 +274,8 @@ void MusicGenVSTProcessor::performGeneration (AceStepParams params)
         return;
     }
 
-    // Create output directory
-    auto now = juce::Time::getCurrentTime();
-    juce::String dirName = params.caption.replaceCharacters (" /\\:*?\"<>|", "__________")
-                               .substring (0, 40)
-                               + "_" + juce::String (params.bpm) + "bpm"
-                               + "_" + now.formatted ("%Y%m%d_%H%M%S");
-    auto outputDir = getGeneratedDir().getChildFile (dirName);
+    // Create output directory (flat — every generation overwrites the same folder)
+    auto outputDir = getGeneratedDir();
     outputDir.createDirectory();
 
     std::vector<GeneratedSample> newSamples;

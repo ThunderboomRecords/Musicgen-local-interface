@@ -42,7 +42,7 @@ struct AceStepParams
     int duration = 10;
     int seed = -1;
     float lmTemperature = 0.8f;
-    float lmCfgScale = 2.5f;
+    float lmCfgScale = 7.0f;
     float lmTopP = 0.9f;
     int lmTopK = 0;
     int inferenceSteps = 50;
