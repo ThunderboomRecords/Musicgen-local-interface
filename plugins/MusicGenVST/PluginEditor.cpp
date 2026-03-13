@@ -894,7 +894,21 @@ void MusicGenVSTEditor::filesDropped (const juce::StringArray& files, int, int)
         if (ext == ".wav" || ext == ".mp3" || ext == ".aif"
             || ext == ".aiff" || ext == ".flac")
         {
-            srcAudioFile = file;
+            // Files dragged from DAWs like Ableton may come from a temporary
+            // path that gets cleaned up. Copy to a stable temp location to
+            // ensure the file remains accessible at generation time.
+            // This is safe for external files too (just a redundant copy).
+            auto tempDir = juce::File::getSpecialLocation (
+                juce::File::tempDirectory).getChildFile ("MusicGenVST");
+            tempDir.createDirectory();
+            auto dest = tempDir.getNonexistentChildFile (
+                file.getFileNameWithoutExtension(), ext);
+
+            if (file.existsAsFile() && file.copyFileTo (dest))
+                srcAudioFile = dest;
+            else
+                srcAudioFile = file;
+
             uploadFileButton.setButtonText (file.getFileName());
             break;
         }

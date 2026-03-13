@@ -26,7 +26,7 @@ ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 
 [Files]
-Source: "..\..\build-artifacts\build\Plugins\{#PluginName}\{#PluginName}_artefacts\Release\VST3\{#PluginName}.vst3\*"; DestDir: "{app}\{#PluginName}.vst3"; Flags: recursesubdirs
+Source: "..\..\build-artifacts\build\plugins\{#PluginName}\{#PluginName}_artefacts\Release\VST3\{#PluginName}.vst3\*"; DestDir: "{app}\{#PluginName}.vst3"; Flags: recursesubdirs
 ; ACE-Step binaries bundled inside the VST3 directory
 Source: "..\..\build-artifacts\acestep.cpp\build\ace-qwen3.exe"; DestDir: "{app}\{#PluginName}.vst3\acestep"; Flags: ignoreversion
 Source: "..\..\build-artifacts\acestep.cpp\build\dit-vae.exe"; DestDir: "{app}\{#PluginName}.vst3\acestep"; Flags: ignoreversion
