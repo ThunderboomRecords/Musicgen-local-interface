@@ -1,0 +1,250 @@
+name: Build and Package MusicGenVST
+
+# Tag format: [type]-[os]-v[version]
+#   type:   beta | release
+#   os:     all | macos | windows | linux
+#
+# Examples:
+#   beta-all-v1.0.0        -> build on all OS, no release
+#   release-macos-v1.0.0   -> build on macOS only, create release
+#   release-all-v2.0.0     -> build everything, create release
+#   beta-windows-v0.3.0    -> build on Windows only, no release
+
+on:
+  push:
+    tags:
+      - 'beta-*-v*'
+      - 'release-*-v*'
+  workflow_dispatch:
+
+jobs:
+  resolve:
+    name: Resolve tag
+    runs-on: ubuntu-latest
+    outputs:
+      os_matrix: ${{ steps.parse.outputs.os_matrix }}
+      is_release: ${{ steps.parse.outputs.is_release }}
+      version: ${{ steps.parse.outputs.version }}
+    steps:
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${GITHUB_REF_NAME:-beta-all-v0.0.0}"
+          PREFIX="${TAG%%-v*}"
+
+          TYPE_PART=$(echo "$PREFIX" | cut -d'-' -f1)
+          OS_PART=$(echo "$PREFIX" | cut -d'-' -f2)
+
+          # Resolve OS matrix
+          case "$OS_PART" in
+            macos)   OS_MATRIX='["macos-latest"]' ;;
+            windows) OS_MATRIX='["windows-latest"]' ;;
+            linux)   OS_MATRIX='["ubuntu-latest"]' ;;
+            *)       OS_MATRIX='["ubuntu-latest","macos-latest","windows-latest"]' ;;
+          esac
+
+          # Resolve release flag
+          if [ "$TYPE_PART" = "release" ]; then
+            IS_RELEASE="true"
+          else
+            IS_RELEASE="false"
+          fi
+
+          VERSION="${TAG##*-v}"
+
+          echo "os_matrix=$OS_MATRIX" >> "$GITHUB_OUTPUT"
+          echo "is_release=$IS_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          echo "OS:       $OS_MATRIX"
+          echo "Release:  $IS_RELEASE"
+          echo "Version:  $VERSION"
+
+  build:
+    name: Build on ${{ matrix.os }}
+    needs: resolve
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.resolve.outputs.os_matrix) }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libx11-dev libxinerama-dev libxext-dev libfreetype6-dev libwebkit2gtk-4.1-dev libglu1-mesa-dev libcurl4-openssl-dev libxrandr-dev libfontconfig1-dev libxcursor-dev libgtk-3-dev
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Install Ninja (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ninja -y --no-progress
+
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.os }}-ccache
+          max-size: 2G
+
+      # --- Build ACE-Step binaries (CPU-only) ---
+      - name: Build ACE-Step (Win/Linux)
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          cd acestep.cpp
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release --parallel
+
+      - name: Build ACE-Step (macOS Universal Binary)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd acestep.cpp
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          cmake --build build --config Release --parallel
+
+      # --- Build JUCE plugin ---
+      - name: Configure CMake (Win/Linux)
+        if: runner.os != 'macOS'
+        run: >
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DMUSICGENVST_VERSION=${{ needs.resolve.outputs.version }}
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Configure CMake (macOS Universal Binary)
+        if: runner.os == 'macOS'
+        run: >
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DMUSICGENVST_VERSION=${{ needs.resolve.outputs.version }}
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build Plugin
+        shell: bash
+        run: |
+          TARGETS="--target MusicGenVST_VST3"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            TARGETS="$TARGETS --target MusicGenVST_AU"
+          fi
+          cmake --build build $TARGETS --config Release --parallel
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ runner.os }}
+          if-no-files-found: ignore
+          path: |
+            build/Plugins/MusicGenVST/MusicGenVST_artefacts/Release/VST3
+            build/Plugins/MusicGenVST/MusicGenVST_artefacts/Release/AU
+            acestep.cpp/build/ace-qwen3
+            acestep.cpp/build/ace-qwen3.exe
+            acestep.cpp/build/dit-vae
+            acestep.cpp/build/dit-vae.exe
+            installers/download-models.sh
+            installers/windows/download-models.ps1
+
+  package:
+    name: Package for ${{ matrix.os }}
+    needs: [resolve, build]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.resolve.outputs.os_matrix) }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-${{ runner.os }}
+          path: build-artifacts/build/Plugins
+
+      - name: List Downloaded Artifacts
+        shell: bash
+        run: find build-artifacts -type f | head -50
+
+      # --- macOS ---
+      - name: Build macOS Installer (.pkg)
+        if: runner.os == 'macOS'
+        run: |
+          chmod +x installers/macos/build-pkg.sh
+          ./installers/macos/build-pkg.sh "MusicGenVST" "${{ needs.resolve.outputs.version }}"
+
+      # --- Windows ---
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: choco install innosetup -y --no-progress
+
+      - name: Build Windows Installer (.exe)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DPluginName=MusicGenVST /DMyAppVersion=${{ needs.resolve.outputs.version }} installers\windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # --- Linux ---
+      - name: Build Linux Packages (.deb + .tar.gz)
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x installers/linux/build-deb.sh
+          ./installers/linux/build-deb.sh "MusicGenVST" "${{ needs.resolve.outputs.version }}"
+
+      - name: Upload Installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicGenVST-Installers-${{ runner.os }}
+          if-no-files-found: warn
+          path: |
+            output/*.pkg
+            output/*.exe
+            output/*.deb
+            output/*.tar.gz
+
+  release:
+    name: Create GitHub Release
+    needs: [resolve, package]
+    if: needs.resolve.outputs.is_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: MusicGenVST-Installers-*
+          path: installers
+          merge-multiple: true
+
+      - name: List release assets
+        run: find installers -type f
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "MusicGenVST v${{ needs.resolve.outputs.version }}" \
+            --generate-notes \
+            installers/*
