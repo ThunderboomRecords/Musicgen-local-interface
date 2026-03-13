@@ -160,7 +160,9 @@ void AbletonLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& bu
         g.setColour (juce::Colours::black);
 
         auto bounds = button.getLocalBounds();
-        auto textWidth = customFont.getStringWidth (button.getButtonText());
+        juce::GlyphArrangement glyphs;
+        glyphs.addLineOfText (customFont, button.getButtonText(), 0.0f, 0.0f);
+        auto textWidth = static_cast<int> (std::ceil (glyphs.getBoundingBox (0, -1, false).getWidth()));
         float iconSize = customFont.getHeight();
         float gap = 6.0f;
         float totalWidth = static_cast<float> (textWidth) + gap + iconSize;
@@ -273,6 +275,113 @@ juce::Label* AbletonLookAndFeel::createSliderTextBox (juce::Slider& slider)
 }
 
 //==============================================================================
+// SampleListModel
+//==============================================================================
+int SampleListModel::getNumRows()
+{
+    return 10; // Always show 10 sample slots
+}
+
+void SampleListModel::paintListBoxItem (int rowNumber, juce::Graphics& g,
+                                         int width, int height, bool rowIsSelected)
+{
+    // Original visual style: alternating row colours with fillAll
+    g.fillAll (rowNumber % 2 == 0 ? AbletonColours::rowEven : AbletonColours::rowOdd);
+
+    const int numGenerated = (processor != nullptr) ? processor->getNumGeneratedSamples() : 0;
+    const bool hasContent = rowNumber < numGenerated;
+
+    // Playing highlight overrides row colour
+    if (hasContent && processor != nullptr && processor->isPlayingSample (rowNumber))
+        g.fillAll (AbletonColours::accent);
+    else if (rowIsSelected && hasContent)
+        g.fillAll (AbletonColours::accent);
+
+    g.setColour (AbletonColours::text);
+
+    if (hasContent)
+    {
+        auto name = processor->getGeneratedSampleName (rowNumber);
+        if (name.isEmpty())
+            name = "Sample " + juce::String (rowNumber + 1);
+
+        g.drawText (juce::String (rowNumber + 1) + "  " + name, 8, 0, width - 8, height,
+                    juce::Justification::centredLeft);
+    }
+    else
+    {
+        g.drawText (juce::String (rowNumber + 1), 8, 0, width - 8, height,
+                    juce::Justification::centredLeft);
+    }
+}
+
+void SampleListModel::listBoxItemClicked (int row, const juce::MouseEvent&)
+{
+    if (processor == nullptr)
+        return;
+
+    // Ignore clicks on empty slots
+    if (row >= processor->getNumGeneratedSamples())
+        return;
+
+    // Toggle: click same row again to stop
+    if (processor->isPlayingSample (row))
+        processor->stopPlayback();
+    else
+        processor->playGeneratedSample (row);
+
+    if (listBox != nullptr)
+    {
+        listBox->repaint();
+
+        // Start a timer on the editor to update the playing highlight
+        if (auto* editor = dynamic_cast<MusicGenVSTEditor*> (listBox->getParentComponent()))
+            editor->startPlaybackTimer();
+    }
+}
+
+juce::var SampleListModel::getDragSourceDescription (const juce::SparseSet<int>& selectedRows)
+{
+    if (processor == nullptr || selectedRows.isEmpty())
+        return {};
+
+    int row = selectedRows[0];
+    if (row >= processor->getNumGeneratedSamples())
+        return {};
+    auto file = processor->getGeneratedSampleFile (row);
+    if (file.existsAsFile())
+    {
+        // Trigger an OS-level file drag so DAWs can accept the drop
+        juce::StringArray files;
+        files.add (file.getFullPathName());
+        juce::DragAndDropContainer::performExternalDragDropOfFiles (files, false);
+        return {};  // cancel the internal drag — external drag takes over
+    }
+
+    return {};
+}
+
+//==============================================================================
+// Helper to set up a rotary dial
+//==============================================================================
+static void setupDial (juce::Slider& dial, juce::Label& label, const juce::String& name,
+                       double min, double max, double interval, double defaultVal,
+                       const juce::Font& font, juce::Component* parent)
+{
+    dial.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    dial.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 18);
+    dial.setRange (min, max, interval);
+    dial.setValue (defaultVal);
+    dial.setColour (juce::Slider::textBoxTextColourId, AbletonColours::text);
+    dial.setColour (juce::Slider::textBoxBackgroundColourId, AbletonColours::inputBg);
+    label.setText (name, juce::dontSendNotification);
+    label.setFont (font);
+    label.setJustificationType (juce::Justification::centred);
+    parent->addChildComponent (dial);
+    parent->addChildComponent (label);
+}
+
+//==============================================================================
 // MusicGenVSTEditor
 //==============================================================================
 MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
@@ -286,7 +395,7 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     uploadFileButton.setComponentID ("uploadFileButton");
     addAndMakeVisible (uploadFileButton);
 
-    // Prompt
+    // Prompt (caption)
     promptInput.setName ("underline");
     promptInput.setTextToShowWhenEmpty ("A hip hop style beat", AbletonColours::light1);
     promptInput.setFont (customFont);
@@ -294,13 +403,14 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     addAndMakeVisible (promptInput);
 
     // Instrumentation
-    instrumentationInput.setName ("underline");
-    instrumentationInput.setTextToShowWhenEmpty ("Drums, adds a bassline", AbletonColours::light1);
-    instrumentationInput.setFont (customFont);
-    instrumentationInput.setJustification (juce::Justification::centredLeft);
-    addAndMakeVisible (instrumentationInput);
+    instrumentInput.setName ("underline");
+    instrumentInput.setTextToShowWhenEmpty ("drums, guitar, bass, vocals", AbletonColours::light1);
+    instrumentInput.setFont (customFont);
+    instrumentInput.setJustification (juce::Justification::centredLeft);
+    instrumentInput.setMultiLine (false);
+    addAndMakeVisible (instrumentInput);
 
-    // Length
+    // Length (duration in seconds)
     lengthLabel.setText ("Length", juce::dontSendNotification);
     lengthLabel.setFont (customFont);
     addAndMakeVisible (lengthLabel);
@@ -323,13 +433,47 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
 
     // Generate button
     generateButton.setButtonText ("Generate");
+    generateButton.onClick = [this]
+    {
+        if (processorRef.isGenerating())
+            return;
+
+        AceStepParams params;
+        auto instruments = instrumentInput.getText();
+        if (instruments.isNotEmpty())
+            params.caption = promptInput.getText() + ", " + instruments;
+        else
+            params.caption = promptInput.getText();
+        params.bpm = static_cast<int> (bpmInput.getValue());
+        params.duration = static_cast<int> (lengthInput.getValue());
+        params.numSamples = static_cast<int> (samplesInput.getValue());
+
+        // Advanced params
+        params.lmTemperature = static_cast<float> (temperatureDial.getValue());
+        params.lmCfgScale = static_cast<float> (cfgScaleDial.getValue());
+        params.lmTopP = static_cast<float> (topPDial.getValue());
+        params.lmTopK = static_cast<int> (topKDial.getValue());
+
+        processorRef.generateAsync (params);
+        startTimerHz (10);
+    };
     addAndMakeVisible (generateButton);
 
     // Sample list
+    sampleListModel.processor = &processorRef;
+    sampleListModel.listBox = &sampleList;
     sampleList.setModel (&sampleListModel);
     sampleList.setOutlineThickness (0);
     sampleList.getViewport()->setScrollBarsShown (false, false);
+    sampleList.setMultipleSelectionEnabled (false);
     addAndMakeVisible (sampleList);
+
+    // Status label
+    statusLabel.setText ("", juce::dontSendNotification);
+    statusLabel.setFont (customFont);
+    statusLabel.setJustificationType (juce::Justification::centredLeft);
+    statusLabel.setColour (juce::Label::textColourId, AbletonColours::text);
+    addAndMakeVisible (statusLabel);
 
     // Advanced toggle
     advancedToggle.setButtonText ("Advanced Settings");
@@ -346,57 +490,11 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     };
     addAndMakeVisible (advancedToggle);
 
-    // Temperature dial
-    temperatureDial.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    temperatureDial.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 18);
-    temperatureDial.setRange (0.0, 2.0, 0.01);
-    temperatureDial.setValue (1.0);
-    temperatureDial.setColour (juce::Slider::textBoxTextColourId, AbletonColours::text);
-    temperatureDial.setColour (juce::Slider::textBoxBackgroundColourId, AbletonColours::inputBg);
-    temperatureLabel.setText ("Temperature", juce::dontSendNotification);
-    temperatureLabel.setFont (customFont);
-    temperatureLabel.setJustificationType (juce::Justification::centred);
-    addChildComponent (temperatureDial);
-    addChildComponent (temperatureLabel);
-
-    // Top K dial
-    topKDial.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    topKDial.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 18);
-    topKDial.setRange (1.0, 1000.0, 1.0);
-    topKDial.setValue (250.0);
-    topKDial.setColour (juce::Slider::textBoxTextColourId, AbletonColours::text);
-    topKDial.setColour (juce::Slider::textBoxBackgroundColourId, AbletonColours::inputBg);
-    topKLabel.setText ("Top K", juce::dontSendNotification);
-    topKLabel.setFont (customFont);
-    topKLabel.setJustificationType (juce::Justification::centred);
-    addChildComponent (topKDial);
-    addChildComponent (topKLabel);
-
-    // Top P dial
-    topPDial.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    topPDial.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 18);
-    topPDial.setRange (0.0, 1.0, 0.01);
-    topPDial.setValue (0.0);
-    topPDial.setColour (juce::Slider::textBoxTextColourId, AbletonColours::text);
-    topPDial.setColour (juce::Slider::textBoxBackgroundColourId, AbletonColours::inputBg);
-    topPLabel.setText ("Top P", juce::dontSendNotification);
-    topPLabel.setFont (customFont);
-    topPLabel.setJustificationType (juce::Justification::centred);
-    addChildComponent (topPDial);
-    addChildComponent (topPLabel);
-
-    // CFG dial
-    cfgDial.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    cfgDial.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 18);
-    cfgDial.setRange (1.0, 10.0, 1.0);
-    cfgDial.setValue (3.0);
-    cfgDial.setColour (juce::Slider::textBoxTextColourId, AbletonColours::text);
-    cfgDial.setColour (juce::Slider::textBoxBackgroundColourId, AbletonColours::inputBg);
-    cfgLabel.setText ("CFG", juce::dontSendNotification);
-    cfgLabel.setFont (customFont);
-    cfgLabel.setJustificationType (juce::Justification::centred);
-    addChildComponent (cfgDial);
-    addChildComponent (cfgLabel);
+    // --- Advanced section components (4 dials) ---
+    setupDial (temperatureDial, temperatureLabel, "Temperature", 0.0, 2.0, 0.01, 0.8, customFont, this);
+    setupDial (cfgScaleDial, cfgScaleLabel, "CFG Scale", 0.0, 10.0, 0.1, 2.5, customFont, this);
+    setupDial (topPDial, topPLabel, "Top P", 0.0, 1.0, 0.01, 0.9, customFont, this);
+    setupDial (topKDial, topKLabel, "Top K", 0.0, 1000.0, 1.0, 0.0, customFont, this);
 
     // Resizable from 50% to 250% with list-height snapping
     constrainer.advancedVisiblePtr = &advancedVisible;
@@ -414,7 +512,59 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
 
 MusicGenVSTEditor::~MusicGenVSTEditor()
 {
+    stopTimer();
     setLookAndFeel (nullptr);
+}
+
+//==============================================================================
+void MusicGenVSTEditor::timerCallback()
+{
+    // Repaint sample list to update playing highlight
+    sampleList.repaint();
+
+    if (processorRef.isGenerating())
+    {
+        auto status = processorRef.getGenerationStatus();
+        statusLabel.setText (status, juce::dontSendNotification);
+        statusLabel.setColour (juce::Label::textColourId, AbletonColours::accent);
+        generateButton.setButtonText ("Generating...");
+        return;
+    }
+
+    // Not generating — check if we just finished
+    auto error = processorRef.getGenerationError();
+    if (error.isNotEmpty())
+    {
+        statusLabel.setText (error, juce::dontSendNotification);
+        statusLabel.setColour (juce::Label::textColourId, juce::Colours::red);
+    }
+    else if (generateButton.getButtonText() == "Generating...")
+    {
+        statusLabel.setText ("Done!", juce::dontSendNotification);
+        statusLabel.setColour (juce::Label::textColourId, AbletonColours::text);
+    }
+
+    generateButton.setButtonText ("Generate");
+    sampleList.updateContent();
+
+    // Stop timer if nothing is playing either
+    bool anyPlaying = false;
+    for (int i = 0; i < processorRef.getNumGeneratedSamples(); ++i)
+    {
+        if (processorRef.isPlayingSample (i))
+        {
+            anyPlaying = true;
+            break;
+        }
+    }
+    if (! anyPlaying)
+        stopTimer();
+}
+
+void MusicGenVSTEditor::startPlaybackTimer()
+{
+    if (! isTimerRunning())
+        startTimerHz (10);
 }
 
 //==============================================================================
@@ -428,6 +578,7 @@ void MusicGenVSTEditor::paint (juce::Graphics& g)
     const int innerPad = static_cast<int> (8 * scale);
     const int buttonH = static_cast<int> (31 * scale);
     const int labelH = static_cast<int> (23 * scale);
+    juce::ignoreUnused (labelH);
     const int inputH = static_cast<int> (31 * scale);
     const int margin = static_cast<int> (8 * scale);
     const int buttonMargin = static_cast<int> (12 * scale);
@@ -481,7 +632,7 @@ void MusicGenVSTEditor::resized()
     const int leftContentH = buttonH + buttonMargin          // Upload File + gap
                            + labelH + inputH + margin         // Prompt
                            + labelH + inputH + margin         // Instrumentation
-                           + inputH                             // Number row
+                           + inputH                           // Number row
                            + buttonMargin + buttonH           // Generate
                            + buttonMargin + buttonH;          // Advanced toggle
     const int panelH = leftContentH + innerPad * 2;
@@ -489,7 +640,7 @@ void MusicGenVSTEditor::resized()
     const int verticalGap = (availableH - panelH) / 2;
     bounds.removeFromTop (verticalGap);
 
-    // Reserve space for advanced section if visible
+    // Reserve space for main panels
     auto topArea = bounds.removeFromTop (panelH);
 
     // Split into left (50%) and right (50%)
@@ -499,8 +650,6 @@ void MusicGenVSTEditor::resized()
     // --- Left panel ---
     auto left = leftPanel.withTrimmedRight (static_cast<int> (5 * scale)).reduced (innerPad);
 
-    // Layout bottom-up for fixed elements, upload button gets remaining space
-    // Reserve space from bottom: Advanced toggle, Generate, Number row, Instrumentation, Prompt
     int bottomContentH = buttonH                              // Advanced toggle
                        + buttonMargin + buttonH               // Generate
                        + buttonMargin + inputH                // Number row
@@ -512,19 +661,19 @@ void MusicGenVSTEditor::resized()
     if (uploadH < buttonH)
         uploadH = buttonH;
 
-    // Upload Audio File button (fills remaining top space)
+    // Upload Audio File button
     uploadFileButton.setBounds (left.removeFromTop (uploadH));
     left.removeFromTop (buttonMargin);
 
-    // Prompt
+    // Prompt (caption)
     promptInput.setBounds (left.removeFromTop (inputH));
     left.removeFromTop (margin);
 
     // Instrumentation
-    instrumentationInput.setBounds (left.removeFromTop (inputH));
+    instrumentInput.setBounds (left.removeFromTop (inputH));
     left.removeFromTop (margin);
 
-    // Length / BPM / Samples row (label + input side-by-side)
+    // Length / BPM / Samples row
     auto numberRow = left.removeFromTop (inputH);
     const int fieldWidth = (numberRow.getWidth() - margin * 2) / 3;
 
@@ -555,17 +704,20 @@ void MusicGenVSTEditor::resized()
     sampleList.setBounds (right);
     sampleList.setRowHeight (right.getHeight() / 10);
 
-    // --- Advanced section (below both panels) ---
+    // Status label between panels and advanced section
+    statusLabel.setBounds (bounds.removeFromTop (static_cast<int> (16 * scale)));
+
+    // --- Advanced section ---
+    auto setAdvVisible = [](bool vis, auto&... components)
+    {
+        (components.setVisible (vis), ...);
+    };
+
     if (advancedVisible)
     {
-        temperatureDial.setVisible (true);
-        temperatureLabel.setVisible (true);
-        topKDial.setVisible (true);
-        topKLabel.setVisible (true);
-        topPDial.setVisible (true);
-        topPLabel.setVisible (true);
-        cfgDial.setVisible (true);
-        cfgLabel.setVisible (true);
+        setAdvVisible (true,
+            temperatureDial, temperatureLabel, topKDial, topKLabel,
+            topPDial, topPLabel, cfgScaleDial, cfgScaleLabel);
 
         auto advArea = bounds.reduced (static_cast<int> (5 * scale));
         const int dialWidth = advArea.getWidth() / 4;
@@ -583,18 +735,13 @@ void MusicGenVSTEditor::resized()
         topPLabel.setBounds (topPArea.removeFromTop (advLabelH));
         topPDial.setBounds (topPArea);
 
-        cfgLabel.setBounds (advArea.removeFromTop (advLabelH));
-        cfgDial.setBounds (advArea);
+        cfgScaleLabel.setBounds (advArea.removeFromTop (advLabelH));
+        cfgScaleDial.setBounds (advArea);
     }
     else
     {
-        temperatureDial.setVisible (false);
-        temperatureLabel.setVisible (false);
-        topKDial.setVisible (false);
-        topKLabel.setVisible (false);
-        topPDial.setVisible (false);
-        topPLabel.setVisible (false);
-        cfgDial.setVisible (false);
-        cfgLabel.setVisible (false);
+        setAdvVisible (false,
+            temperatureDial, temperatureLabel, topKDial, topKLabel,
+            topPDial, topPLabel, cfgScaleDial, cfgScaleLabel);
     }
 }

@@ -35,8 +35,8 @@ namespace AbletonColours
     const juce::Colour highlight    { 237, 254, 88 };      // #EDFE58
     const juce::Colour highlightDim { 100, 107, 37 };      // dimmed highlight for selection
     const juce::Colour numBoxColor  { 160, 160, 160 };     // #A0A0A0
-    const juce::Colour sampleColor1 { 140, 140, 140 };     // #8C8C8C
-    const juce::Colour sampleColor2 { 160, 160, 160 };     // #A0A0A0
+    const juce::Colour sampleColor1 { 196, 196, 196 };     // #C4C4C4
+    const juce::Colour sampleColor2 { 173, 173, 173 };     // #ADADAD
     const juce::Colour text         { 0, 0, 0 };           // #000000
 
     // Semantic aliases
@@ -86,23 +86,22 @@ public:
 };
 
 //==============================================================================
+class MusicGenVSTProcessor;
+
 class SampleListModel final : public juce::ListBoxModel
 {
 public:
-    int getNumRows() override { return 10; }
+    MusicGenVSTProcessor* processor = nullptr;
+    juce::ListBox* listBox = nullptr;
+
+    int getNumRows() override;
 
     void paintListBoxItem (int rowNumber, juce::Graphics& g,
-                           int width, int height, bool rowIsSelected) override
-    {
-        g.fillAll (rowNumber % 2 == 0 ? AbletonColours::rowEven : AbletonColours::rowOdd);
+                           int width, int height, bool rowIsSelected) override;
 
-        if (rowIsSelected)
-            g.fillAll (AbletonColours::accent);
+    void listBoxItemClicked (int row, const juce::MouseEvent&) override;
 
-        g.setColour (AbletonColours::text);
-        g.drawText (juce::String (rowNumber + 1), 8, 0, width - 8, height,
-                    juce::Justification::centredLeft);
-    }
+    juce::var getDragSourceDescription (const juce::SparseSet<int>& selectedRows) override;
 };
 
 //==============================================================================
@@ -156,7 +155,7 @@ public:
         if (decimals > 0)
             editor.setInputRestrictions (10, "0123456789.");
         else
-            editor.setInputRestrictions (10, "0123456789");
+            editor.setInputRestrictions (10, "0123456789-");
 
         editor.setColour (juce::TextEditor::backgroundColourId, AbletonColours::inputBg);
         editor.setColour (juce::TextEditor::textColourId, AbletonColours::text);
@@ -298,7 +297,9 @@ private:
 };
 
 //==============================================================================
-class MusicGenVSTEditor final : public juce::AudioProcessorEditor
+class MusicGenVSTEditor final : public juce::AudioProcessorEditor,
+                                 public juce::DragAndDropContainer,
+                                 private juce::Timer
 {
 public:
     explicit MusicGenVSTEditor (MusicGenVSTProcessor&);
@@ -307,6 +308,8 @@ public:
     //==============================================================================
     void paint (juce::Graphics&) override;
     void resized() override;
+    void timerCallback() override;
+    void startPlaybackTimer();
 
 private:
     MusicGenVSTProcessor& processorRef;
@@ -315,14 +318,12 @@ private:
 
     // Left panel
     juce::TextButton uploadFileButton;
-    juce::Label promptLabel;
     juce::TextEditor promptInput;
-    juce::Label instrumentationLabel;
-    juce::TextEditor instrumentationInput;
+    juce::TextEditor instrumentInput;
     juce::Label lengthLabel;
-    NumberBox lengthInput { 0.25, 30.0, 8.0, 2 };
+    NumberBox lengthInput { 1, 240, 10, 0 };
     juce::Label bpmLabel;
-    NumberBox bpmInput { 1.0, 300.0, 120.0, 2 };
+    NumberBox bpmInput { 1.0, 300.0, 120.0, 0 };
     juce::Label samplesLabel;
     NumberBox samplesInput { 1.0, 10.0, 1.0, 0 };
     juce::TextButton generateButton;
@@ -335,14 +336,18 @@ private:
     juce::TextButton advancedToggle;
     bool advancedVisible = false;
 
+    // Advanced dials: Temperature, CFG Scale, Top P, Top K
     juce::Slider temperatureDial;
     juce::Label temperatureLabel;
-    juce::Slider topKDial;
-    juce::Label topKLabel;
+    juce::Slider cfgScaleDial;
+    juce::Label cfgScaleLabel;
     juce::Slider topPDial;
     juce::Label topPLabel;
-    juce::Slider cfgDial;
-    juce::Label cfgLabel;
+    juce::Slider topKDial;
+    juce::Label topKLabel;
+
+    // Status label
+    juce::Label statusLabel;
 
     static constexpr int baseWidth = 728;
     static constexpr int baseHeight = 350;

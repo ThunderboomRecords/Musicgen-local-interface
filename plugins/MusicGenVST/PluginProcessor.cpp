@@ -186,13 +186,36 @@ void MusicGenVSTProcessor::setStateInformation (const void* data, int sizeInByte
 }
 
 //==============================================================================
-// Generation (HTTP to localhost:55000)
+// Generation (acestep.cpp child processes)
 //==============================================================================
 
-void MusicGenVSTProcessor::generateAsync (const juce::String& prompt, const juce::String& instrumentation,
-                                           float tempo, float duration, int numSamples,
-                                           float temperature, int topK, float topP, int cfg,
-                                           const juce::File& audioInput)
+juce::File MusicGenVSTProcessor::getAceStepDir() const
+{
+    // acestep.cpp is a sibling directory to the plugin source, but at runtime
+    // we look relative to the plugin binary location or fall back to a
+    // well-known path.
+    auto pluginFile = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
+
+    // Walk up to find the acestep.cpp directory — handles build tree layouts
+    auto dir = pluginFile.getParentDirectory();
+    for (int i = 0; i < 8; ++i)
+    {
+        auto candidate = dir.getChildFile ("acestep.cpp");
+        if (candidate.isDirectory() && candidate.getChildFile ("build").isDirectory())
+            return candidate;
+        dir = dir.getParentDirectory();
+    }
+
+    // Fallback: check common development paths
+    auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+    auto devPath = home.getChildFile ("projects/Other/MusicGenVST/acestep.cpp");
+    if (devPath.isDirectory())
+        return devPath;
+
+    return {};
+}
+
+void MusicGenVSTProcessor::generateAsync (const AceStepParams& params)
 {
     if (generating.load())
         return;
@@ -202,108 +225,178 @@ void MusicGenVSTProcessor::generateAsync (const juce::String& prompt, const juce
         std::lock_guard<std::mutex> lock (errorMutex);
         generationError.clear();
     }
-
-    std::thread ([this, prompt, instrumentation, tempo, duration, numSamples,
-                  temperature, topK, topP, cfg, audioInput]()
     {
-        performGeneration (prompt, instrumentation, tempo, duration, numSamples,
-                           temperature, topK, topP, cfg, audioInput);
+        std::lock_guard<std::mutex> lock (statusMutex);
+        generationStatus = "Starting generation...";
+    }
+
+    std::thread ([this, params]()
+    {
+        performGeneration (params);
         generating.store (false);
     }).detach();
 }
 
-void MusicGenVSTProcessor::performGeneration (juce::String prompt, juce::String instrumentation,
-                                               float tempo, float duration, int numSamples,
-                                               float temperature, int topK, float topP, int cfg,
-                                               juce::File audioInput)
+void MusicGenVSTProcessor::performGeneration (AceStepParams params)
 {
-    juce::String fullPrompt = prompt;
-    if (tempo > 0.0f)
-        fullPrompt += " " + juce::String (tempo, 0) + " BPM";
-    if (instrumentation.isNotEmpty())
-        fullPrompt += " " + instrumentation;
-
-    juce::URL url ("http://127.0.0.1:55000/");
-
-    url = url.withParameter ("prompt", fullPrompt.toLowerCase())
-             .withParameter ("userid", userId)
-             .withParameter ("Temperature", juce::String (temperature))
-             .withParameter ("Top K", juce::String (topK))
-             .withParameter ("Top P", juce::String (topP))
-             .withParameter ("Classifier Free Guidance", juce::String (cfg))
-             .withParameter ("Duration", juce::String (duration))
-             .withParameter ("Samples", juce::String (numSamples));
-
-    if (audioInput.existsAsFile())
-        url = url.withFileToUpload ("audioInput", audioInput, "audio/wav");
-
-    auto stream = url.createInputStream (
-        juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
-            .withConnectionTimeoutMs (5000)
-            .withNumRedirectsToFollow (0));
-
-    if (stream == nullptr)
+    auto aceDir = getAceStepDir();
+    if (! aceDir.isDirectory())
     {
         std::lock_guard<std::mutex> lock (errorMutex);
-        generationError = "Local server not found. Make sure the server is running on localhost:55000.";
+        generationError = "acestep.cpp directory not found. Ensure it exists alongside the plugin.";
         return;
     }
 
-    auto responseText = stream->readEntireStreamAsString();
-    auto json = juce::JSON::parse (responseText);
+    auto buildDir = aceDir.getChildFile ("build");
+    auto modelsDir = aceDir.getChildFile ("models");
 
-    if (! json.isObject())
+    // Verify binaries exist
+    auto aceQwen3 = buildDir.getChildFile ("ace-qwen3");
+    auto ditVae = buildDir.getChildFile ("dit-vae");
+    if (! aceQwen3.existsAsFile() || ! ditVae.existsAsFile())
     {
         std::lock_guard<std::mutex> lock (errorMutex);
-        generationError = "Invalid response from server.";
+        generationError = "acestep.cpp binaries not found. Run the build script first.";
         return;
     }
 
-    bool success = json.getProperty ("success", false);
-    if (! success)
+    // Verify models exist
+    auto lmModel = modelsDir.getChildFile ("acestep-5Hz-lm-4B-Q8_0.gguf");
+    auto textEncoder = modelsDir.getChildFile ("Qwen3-Embedding-0.6B-Q8_0.gguf");
+    auto ditModel = modelsDir.getChildFile ("acestep-v15-sft-Q8_0.gguf");
+    auto vaeModel = modelsDir.getChildFile ("vae-BF16.gguf");
+
+    if (! lmModel.existsAsFile() || ! textEncoder.existsAsFile()
+        || ! ditModel.existsAsFile() || ! vaeModel.existsAsFile())
     {
         std::lock_guard<std::mutex> lock (errorMutex);
-        generationError = "Server returned an error.";
+        generationError = "Model files not found. Run the models download script first.";
         return;
     }
 
-    auto downloadLinks = json.getProperty ("download_links", juce::var());
-    if (! downloadLinks.isArray())
-        return;
-
+    // Create output directory
     auto now = juce::Time::getCurrentTime();
-    juce::String dirName = prompt.replaceCharacters (" /\\:*?\"<>|", "__________")
-                               + "_" + juce::String (tempo, 0) + "bpm"
+    juce::String dirName = params.caption.replaceCharacters (" /\\:*?\"<>|", "__________")
+                               .substring (0, 40)
+                               + "_" + juce::String (params.bpm) + "bpm"
                                + "_" + now.formatted ("%Y%m%d_%H%M%S");
     auto outputDir = getGeneratedDir().getChildFile (dirName);
     outputDir.createDirectory();
 
     std::vector<GeneratedSample> newSamples;
-    for (int i = 0; i < downloadLinks.size(); ++i)
+
+    for (int sampleIdx = 0; sampleIdx < params.numSamples; ++sampleIdx)
     {
-        juce::String link = downloadLinks[i].toString();
-        juce::URL downloadUrl ("http://127.0.0.1:55000" + link);
-
-        auto dlOptions = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
-                             .withConnectionTimeoutMs (30000);
-        auto dlStream = downloadUrl.createInputStream (dlOptions);
-        if (dlStream == nullptr)
-            continue;
-
-        juce::String filename = link.fromLastOccurrenceOf ("/", false, false);
-        auto destFile = outputDir.getChildFile (filename);
-
         {
-            juce::FileOutputStream fos (destFile);
-            if (fos.openedOk())
-            {
-                fos.writeFromInputStream (*dlStream, -1);
-                fos.flush();
-            }
+            std::lock_guard<std::mutex> lock (statusMutex);
+            generationStatus = "Generating sample " + juce::String (sampleIdx + 1)
+                             + " of " + juce::String (params.numSamples) + "...";
         }
 
+        // Write request.json in the output directory
+        auto requestFile = outputDir.getChildFile ("request_" + juce::String (sampleIdx) + ".json");
+
+        auto* jsonObj = new juce::DynamicObject();
+        jsonObj->setProperty ("caption", params.caption);
+
+        if (params.negativePrompt.isNotEmpty())
+            jsonObj->setProperty ("lm_negative_prompt", params.negativePrompt);
+        if (params.keyscale.isNotEmpty())
+            jsonObj->setProperty ("keyscale", params.keyscale);
+        if (params.timesignature.isNotEmpty())
+            jsonObj->setProperty ("timesignature", params.timesignature);
+        if (params.vocalLanguage.isNotEmpty())
+            jsonObj->setProperty ("vocal_language", params.vocalLanguage);
+
+        jsonObj->setProperty ("bpm", params.bpm);
+        jsonObj->setProperty ("duration", params.duration);
+        jsonObj->setProperty ("seed", params.seed);
+        jsonObj->setProperty ("lm_temperature", (double) params.lmTemperature);
+        jsonObj->setProperty ("lm_cfg_scale", (double) params.lmCfgScale);
+        jsonObj->setProperty ("lm_top_p", (double) params.lmTopP);
+        jsonObj->setProperty ("lm_top_k", params.lmTopK);
+        jsonObj->setProperty ("inference_steps", params.inferenceSteps);
+        jsonObj->setProperty ("guidance_scale", (double) params.guidanceScale);
+        jsonObj->setProperty ("shift", (double) params.shift);
+
+        juce::var jsonVar (jsonObj);
+        auto jsonStr = juce::JSON::toString (jsonVar);
+
+        requestFile.replaceWithText (jsonStr);
+
+        // Step 1: Run ace-qwen3 (LLM — generates audio codes)
+        {
+            std::lock_guard<std::mutex> lock (statusMutex);
+            generationStatus = "Sample " + juce::String (sampleIdx + 1)
+                             + ": Running language model...";
+        }
+
+        juce::StringArray lmArgs;
+        lmArgs.add ("--request");
+        lmArgs.add (requestFile.getFullPathName());
+        lmArgs.add ("--model");
+        lmArgs.add (lmModel.getFullPathName());
+
+        if (! runChildProcess (aceQwen3.getFullPathName(), lmArgs))
+        {
+            std::lock_guard<std::mutex> lock (errorMutex);
+            generationError = "ace-qwen3 (language model) failed for sample "
+                            + juce::String (sampleIdx + 1) + ".";
+            return;
+        }
+
+        // ace-qwen3 produces request_N0.json (appends "0" before extension)
+        auto intermediateFile = outputDir.getChildFile ("request_" + juce::String (sampleIdx) + "0.json");
+        if (! intermediateFile.existsAsFile())
+        {
+            std::lock_guard<std::mutex> lock (errorMutex);
+            generationError = "Language model did not produce intermediate file for sample "
+                            + juce::String (sampleIdx + 1) + ".";
+            return;
+        }
+
+        // Step 2: Run dit-vae (synthesize audio)
+        {
+            std::lock_guard<std::mutex> lock (statusMutex);
+            generationStatus = "Sample " + juce::String (sampleIdx + 1)
+                             + ": Synthesizing audio...";
+        }
+
+        juce::StringArray ditArgs;
+        ditArgs.add ("--request");
+        ditArgs.add (intermediateFile.getFullPathName());
+        ditArgs.add ("--text-encoder");
+        ditArgs.add (textEncoder.getFullPathName());
+        ditArgs.add ("--dit");
+        ditArgs.add (ditModel.getFullPathName());
+        ditArgs.add ("--vae");
+        ditArgs.add (vaeModel.getFullPathName());
+
+        if (! runChildProcess (ditVae.getFullPathName(), ditArgs))
+        {
+            std::lock_guard<std::mutex> lock (errorMutex);
+            generationError = "dit-vae (audio synthesis) failed for sample "
+                            + juce::String (sampleIdx + 1) + ".";
+            return;
+        }
+
+        // dit-vae produces request_N00.wav (appends another "0" to the intermediate name)
+        auto wavFile = outputDir.getChildFile ("request_" + juce::String (sampleIdx) + "00.wav");
+        if (! wavFile.existsAsFile())
+        {
+            std::lock_guard<std::mutex> lock (errorMutex);
+            generationError = "Audio synthesis did not produce WAV file for sample "
+                            + juce::String (sampleIdx + 1) + ".";
+            return;
+        }
+
+        // Rename to something meaningful
+        auto destFile = outputDir.getChildFile ("sample_" + juce::String (sampleIdx + 1) + ".wav");
+        wavFile.moveFileTo (destFile);
+
         GeneratedSample sample;
-        sample.name = filename;
+        sample.name = destFile.getFileName();
+        sample.file = destFile;
         if (loadAudioFile (destFile, sample.buffer, sample.sampleRate))
             newSamples.push_back (std::move (sample));
     }
@@ -314,12 +407,38 @@ void MusicGenVSTProcessor::performGeneration (juce::String prompt, juce::String 
         playingSampleIndex = -1;
         playbackPosition = 0;
     }
+
+    {
+        std::lock_guard<std::mutex> lock (statusMutex);
+        generationStatus = "Done!";
+    }
+}
+
+bool MusicGenVSTProcessor::runChildProcess (const juce::String& executable,
+                                             const juce::StringArray& args)
+{
+    juce::ChildProcess process;
+    juce::StringArray fullArgs;
+    fullArgs.add (executable);
+    fullArgs.addArray (args);
+
+    if (! process.start (fullArgs))
+        return false;
+
+    // Wait for the process to finish (blocking — we're on a background thread)
+    return process.waitForProcessToFinish (600000); // 10 minute timeout
 }
 
 juce::String MusicGenVSTProcessor::getGenerationError() const
 {
     std::lock_guard<std::mutex> lock (errorMutex);
     return generationError;
+}
+
+juce::String MusicGenVSTProcessor::getGenerationStatus() const
+{
+    std::lock_guard<std::mutex> lock (statusMutex);
+    return generationStatus;
 }
 
 int MusicGenVSTProcessor::getNumGeneratedSamples() const
@@ -334,6 +453,20 @@ juce::String MusicGenVSTProcessor::getGeneratedSampleName (int index) const
     if (index >= 0 && index < (int) generatedSamples.size())
         return generatedSamples[(size_t) index].name;
     return {};
+}
+
+juce::File MusicGenVSTProcessor::getGeneratedSampleFile (int index) const
+{
+    std::lock_guard<std::mutex> lock (samplesMutex);
+    if (index >= 0 && index < (int) generatedSamples.size())
+        return generatedSamples[(size_t) index].file;
+    return {};
+}
+
+bool MusicGenVSTProcessor::isPlayingSample (int index) const
+{
+    std::lock_guard<std::mutex> lock (samplesMutex);
+    return playingSampleIndex == index;
 }
 
 void MusicGenVSTProcessor::playGeneratedSample (int index)
@@ -368,7 +501,7 @@ bool MusicGenVSTProcessor::loadAudioFile (const juce::File& file, juce::AudioBuf
 
 juce::File MusicGenVSTProcessor::getGeneratedDir() const
 {
-    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                .getChildFile ("MusicGenVST")
                .getChildFile ("generated");
 }

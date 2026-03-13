@@ -25,8 +25,29 @@
 struct GeneratedSample
 {
     juce::String name;
+    juce::File file;
     juce::AudioBuffer<float> buffer;
     double sampleRate = 0.0;
+};
+
+struct AceStepParams
+{
+    juce::String caption;
+    juce::String negativePrompt;
+    juce::String keyscale;
+    juce::String timesignature;
+    juce::String vocalLanguage;
+    int bpm = 120;
+    int duration = 10;
+    int seed = -1;
+    float lmTemperature = 0.8f;
+    float lmCfgScale = 2.5f;
+    float lmTopP = 0.9f;
+    int lmTopK = 0;
+    int inferenceSteps = 50;
+    float guidanceScale = 7.0f;
+    float shift = 6.0f;
+    int numSamples = 1;
 };
 
 class MusicGenVSTProcessor final : public juce::AudioProcessor
@@ -62,29 +83,27 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // --- Generation (HTTP to localhost:55000) ---
-    void generateAsync (const juce::String& prompt, const juce::String& instrumentation,
-                        float tempo, float duration, int numSamples,
-                        float temperature, int topK, float topP, int cfg,
-                        const juce::File& audioInput);
+    // --- Generation (acestep.cpp child processes) ---
+    void generateAsync (const AceStepParams& params);
 
     bool isGenerating() const { return generating.load(); }
     juce::String getGenerationError() const;
+    juce::String getGenerationStatus() const;
 
     int getNumGeneratedSamples() const;
     juce::String getGeneratedSampleName (int index) const;
+    juce::File getGeneratedSampleFile (int index) const;
+    bool isPlayingSample (int index) const;
     void playGeneratedSample (int index);
     void stopPlayback();
 
     juce::String getUserId() const { return userId; }
     juce::File getGeneratedDir() const;
+    juce::File getAceStepDir() const;
 
 private:
-    void performGeneration (juce::String prompt, juce::String instrumentation,
-                            float tempo, float duration, int numSamples,
-                            float temperature, int topK, float topP, int cfg,
-                            juce::File audioInput);
-
+    void performGeneration (AceStepParams params);
+    bool runChildProcess (const juce::String& executable, const juce::StringArray& args);
     bool loadAudioFile (const juce::File& file, juce::AudioBuffer<float>& buffer, double& fileSampleRate);
 
     juce::AudioFormatManager formatManager;
@@ -99,7 +118,9 @@ private:
     // Generation state
     std::atomic<bool> generating { false };
     juce::String generationError;
+    juce::String generationStatus;
     mutable std::mutex errorMutex;
+    mutable std::mutex statusMutex;
 
     // User identity
     juce::String userId;
