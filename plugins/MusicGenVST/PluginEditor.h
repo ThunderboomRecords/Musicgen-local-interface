@@ -18,7 +18,7 @@
 #pragma once
 
 #include "PluginProcessor.h"
-#include "../MusicGen/src/space-grotesk.h"
+#include "space-grotesk.h"
 
 //==============================================================================
 // Ableton-style colour palette
