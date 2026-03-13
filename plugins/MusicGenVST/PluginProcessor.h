@@ -49,6 +49,8 @@ struct AceStepParams
     float guidanceScale = 7.0f;
     float shift = 6.0f;
     int numSamples = 1;
+    juce::String srcAudioFile;
+    float audioCoverStrength = 0.5f;
 };
 
 class MusicGenVSTProcessor final : public juce::AudioProcessor
