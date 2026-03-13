@@ -298,6 +298,7 @@ void MusicGenVSTProcessor::performGeneration (AceStepParams params)
 
         auto* jsonObj = new juce::DynamicObject();
         jsonObj->setProperty ("caption", params.caption);
+        jsonObj->setProperty ("lyrics", params.lyrics);
 
         if (params.negativePrompt.isNotEmpty())
             jsonObj->setProperty ("lm_negative_prompt", params.negativePrompt);

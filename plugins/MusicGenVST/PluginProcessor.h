@@ -33,6 +33,7 @@ struct GeneratedSample
 struct AceStepParams
 {
     juce::String caption;
+    juce::String lyrics { "[Instrumental]" };
     juce::String negativePrompt;
     juce::String keyscale;
     juce::String timesignature;

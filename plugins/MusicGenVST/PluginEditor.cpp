@@ -444,6 +444,14 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
             params.caption = promptInput.getText() + ", " + instruments;
         else
             params.caption = promptInput.getText();
+
+        auto instrumentsLower = instruments.toLowerCase();
+        bool hasVocals = instrumentsLower.contains ("vocal")
+                      || instrumentsLower.contains ("sing")
+                      || instrumentsLower.contains ("voice")
+                      || instrumentsLower.contains ("rap")
+                      || instrumentsLower.contains ("choir");
+        params.lyrics = hasVocals ? "" : "[Instrumental]";
         params.bpm = static_cast<int> (bpmInput.getValue());
         params.duration = static_cast<int> (lengthInput.getValue());
         params.numSamples = static_cast<int> (samplesInput.getValue());
