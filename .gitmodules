@@ -1,3 +1,6 @@
 [submodule "JUCE"]
 	path = JUCE
 	url = https://github.com/juce-framework/JUCE.git
+[submodule "acestep.cpp"]
+	path = acestep.cpp
+	url = https://github.com/ServeurpersoCom/acestep.cpp
