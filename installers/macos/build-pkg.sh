@@ -16,7 +16,7 @@ mkdir -p "$OUTPUT_DIR" "$STAGING_DIR"
 # --- Stage VST3 ---
 VST3_ROOT="$STAGING_DIR/vst3/Library/Audio/Plug-Ins/VST3"
 mkdir -p "$VST3_ROOT"
-src="$ARTIFACT_DIR/build/Plugins/$PLUGIN/${PLUGIN}_artefacts/Release/VST3/${PLUGIN}.vst3"
+src="$ARTIFACT_DIR/build/plugins/$PLUGIN/${PLUGIN}_artefacts/Release/VST3/${PLUGIN}.vst3"
 if [ -d "$src" ]; then
     cp -R "$src" "$VST3_ROOT/"
     # Bundle ACE-Step binaries inside VST3 Resources
@@ -38,7 +38,7 @@ fi
 # --- Stage AU ---
 AU_ROOT="$STAGING_DIR/au/Library/Audio/Plug-Ins/Components"
 mkdir -p "$AU_ROOT"
-src="$ARTIFACT_DIR/build/Plugins/$PLUGIN/${PLUGIN}_artefacts/Release/AU/${PLUGIN}.component"
+src="$ARTIFACT_DIR/build/plugins/$PLUGIN/${PLUGIN}_artefacts/Release/AU/${PLUGIN}.component"
 if [ -d "$src" ]; then
     cp -R "$src" "$AU_ROOT/"
     # Bundle ACE-Step binaries inside AU Resources
@@ -55,7 +55,7 @@ fi
 # --- Stage Standalone ---
 APP_ROOT="$STAGING_DIR/standalone/Applications/ThunderboomRecords"
 mkdir -p "$APP_ROOT"
-src="$ARTIFACT_DIR/build/Plugins/$PLUGIN/${PLUGIN}_artefacts/Release/Standalone/${PLUGIN}.app"
+src="$ARTIFACT_DIR/build/plugins/$PLUGIN/${PLUGIN}_artefacts/Release/Standalone/${PLUGIN}.app"
 if [ -d "$src" ]; then
     cp -R "$src" "$APP_ROOT/"
 fi

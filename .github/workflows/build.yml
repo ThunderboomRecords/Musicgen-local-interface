@@ -149,8 +149,8 @@ jobs:
           name: build-${{ runner.os }}
           if-no-files-found: ignore
           path: |
-            build/Plugins/MusicGenVST/MusicGenVST_artefacts/Release/VST3
-            build/Plugins/MusicGenVST/MusicGenVST_artefacts/Release/AU
+            build/plugins/MusicGenVST/MusicGenVST_artefacts/Release/VST3
+            build/plugins/MusicGenVST/MusicGenVST_artefacts/Release/AU
             acestep.cpp/build/ace-qwen3
             acestep.cpp/build/ace-qwen3.exe
             acestep.cpp/build/dit-vae
@@ -175,7 +175,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-${{ runner.os }}
-          path: build-artifacts/build/Plugins
+          path: build-artifacts
 
       - name: List Downloaded Artifacts
         shell: bash

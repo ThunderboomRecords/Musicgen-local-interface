@@ -21,12 +21,12 @@ mkdir -p "$DEB_ROOT/usr/lib/vst3"
 mkdir -p "$DEB_ROOT/usr/local/bin"
 mkdir -p "$DEB_ROOT/usr/lib/musicgenvst/acestep"
 
-src="$ARTIFACT_DIR/build/Plugins/$PLUGIN/${PLUGIN}_artefacts/Release/VST3/${PLUGIN}.vst3"
+src="$ARTIFACT_DIR/build/plugins/$PLUGIN/${PLUGIN}_artefacts/Release/VST3/${PLUGIN}.vst3"
 if [ -d "$src" ]; then
     cp -R "$src" "$DEB_ROOT/usr/lib/vst3/"
 fi
 
-src="$ARTIFACT_DIR/build/Plugins/$PLUGIN/${PLUGIN}_artefacts/Release/Standalone/$PLUGIN"
+src="$ARTIFACT_DIR/build/plugins/$PLUGIN/${PLUGIN}_artefacts/Release/Standalone/$PLUGIN"
 if [ -f "$src" ]; then
     cp "$src" "$DEB_ROOT/usr/local/bin/"
 fi
@@ -78,12 +78,12 @@ mkdir -p "$TAR_ROOT/vst3"
 mkdir -p "$TAR_ROOT/standalone"
 mkdir -p "$TAR_ROOT/acestep"
 
-src="$ARTIFACT_DIR/build/Plugins/$PLUGIN/${PLUGIN}_artefacts/Release/VST3/${PLUGIN}.vst3"
+src="$ARTIFACT_DIR/build/plugins/$PLUGIN/${PLUGIN}_artefacts/Release/VST3/${PLUGIN}.vst3"
 if [ -d "$src" ]; then
     cp -R "$src" "$TAR_ROOT/vst3/"
 fi
 
-src="$ARTIFACT_DIR/build/Plugins/$PLUGIN/${PLUGIN}_artefacts/Release/Standalone/$PLUGIN"
+src="$ARTIFACT_DIR/build/plugins/$PLUGIN/${PLUGIN}_artefacts/Release/Standalone/$PLUGIN"
 if [ -f "$src" ]; then
     cp "$src" "$TAR_ROOT/standalone/"
 fi
