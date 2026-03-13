@@ -430,32 +430,174 @@ static juce::String extractTimeSignature (const juce::String& text)
     return {};
 }
 
+static juce::String normalizeText (const juce::String& text)
+{
+    auto s = text.toLowerCase();
+
+    // Common typos and alternate spellings → canonical form
+    struct Alias { const char* from; const char* to; };
+    static const Alias aliases[] = {
+        // Genre typos / variants
+        { "hiphop",      "hip hop" },
+        { "hip-hop",     "hip hop" },
+        { "rnb",         "r&b" },
+        { "r & b",       "r&b" },
+        { "rhythm and blues", "r&b" },
+        { "drum and bass", "drum & bass" },
+        { "drum n bass", "drum & bass" },
+        { "dnb",         "drum & bass" },
+        { "d&b",         "drum & bass" },
+        { "edm",         "electronic" },
+        { "electro",     "electronic" },
+        { "synthwave",   "synth wave" },
+        { "lofi",        "lo-fi" },
+        { "lo fi",       "lo-fi" },
+        { "triphop",     "trip hop" },
+        { "trip-hop",    "trip hop" },
+        { "postrock",    "post rock" },
+        { "post-rock",   "post rock" },
+        { "postpunk",    "post punk" },
+        { "post-punk",   "post punk" },
+        { "deephouse",   "deep house" },
+        { "deep-house",  "deep house" },
+        { "progrock",    "prog rock" },
+        { "prog-rock",   "prog rock" },
+        // Instrument typos
+        { "durms",       "drums" },
+        { "drms",        "drums" },
+        { "drumms",      "drums" },
+        { "bss",         "bass" },
+        { "basss",       "bass" },
+        { "base",        "bass" },
+        { "gitar",       "guitar" },
+        { "guiter",      "guitar" },
+        { "guitare",     "guitar" },
+        { "pino",        "piano" },
+        { "paino",       "piano" },
+        { "pianno",      "piano" },
+        { "snyth",       "synth" },
+        { "snth",        "synth" },
+        { "synthe",      "synth" },
+        { "synthesizer", "synth" },
+        { "voicals",     "vocals" },
+        { "voclas",      "vocals" },
+        { "voacls",      "vocals" },
+        { "percusion",   "percussion" },
+        { "percusion",   "percussion" },
+        { "trumpt",      "trumpet" },
+        { "trumpe",      "trumpet" },
+        { "saxaphone",   "saxophone" },
+        { "saxofone",    "saxophone" },
+        { "sax",         "saxophone" },
+        { "violine",     "violin" },
+        { "voilin",      "violin" },
+        { "celo",        "cello" },
+        { "chello",      "cello" },
+        { "flaut",       "flute" },
+        { "floot",       "flute" },
+        { "harmonica",   "harmonica" },
+        { "harmonika",   "harmonica" },
+        { "ukelele",     "ukulele" },
+        { "ukalele",     "ukulele" },
+    };
+
+    for (auto& a : aliases)
+        s = s.replace (a.from, a.to);
+
+    return s;
+}
+
 static juce::String buildNegativePrompt (const juce::String& text)
 {
-    auto lower = text.toLowerCase();
+    auto lower = normalizeText (text);
     juce::StringArray negatives;
 
     // If instrumental (no vocals requested), suppress vocal-related content
     bool hasVocals = lower.contains ("vocal") || lower.contains ("sing")
                   || lower.contains ("voice") || lower.contains ("rap")
-                  || lower.contains ("choir");
+                  || lower.contains ("choir") || lower.contains ("lyric");
     if (! hasVocals)
         negatives.addArray ({ "vocals", "singing", "voice" });
 
-    // Suppress instruments/qualities not mentioned — contrast what the user wants
+    //--------------------------------------------------------------------------
+    // Instrumentation-aware suppression
+    // If user mentions specific instruments (especially with "only"), suppress
+    // all other common instruments not mentioned.
+    //--------------------------------------------------------------------------
+    static const char* allInstruments[] = {
+        "drums", "percussion", "bass", "guitar", "piano", "synth", "strings",
+        "violin", "cello", "trumpet", "saxophone", "flute", "organ", "harp",
+        "ukulele", "harmonica", "808", "keys"
+    };
+
+    // Detect if user is isolating specific instruments ("drums only", "only drums", "just piano")
+    bool isolating = lower.contains ("only") || lower.contains ("just")
+                  || lower.contains ("solo") || lower.contains ("nothing but");
+
+    if (isolating)
+    {
+        for (auto inst : allInstruments)
+            if (! lower.contains (inst) && ! negatives.contains (inst))
+                negatives.add (inst);
+    }
+
+    //--------------------------------------------------------------------------
+    // Genre-based suppression rules
+    //--------------------------------------------------------------------------
     struct NegRule { const char* keyword; std::initializer_list<const char*> suppress; };
     static const NegRule rules[] = {
-        { "techno",    { "soft", "ambient", "slow", "acoustic", "guitar" } },
-        { "ambient",   { "drums", "percussion", "loud", "distortion" } },
-        { "acoustic",  { "synth", "electronic", "distortion", "808" } },
-        { "electronic",{ "acoustic", "guitar", "strings" } },
-        { "metal",     { "soft", "ambient", "piano", "flute" } },
-        { "jazz",      { "distortion", "808", "heavy" } },
-        { "classical", { "drums", "808", "distortion", "synth" } },
-        { "hip hop",   { "guitar", "strings", "flute", "classical" } },
-        { "rock",      { "soft", "ambient", "flute", "harp" } },
-        { "piano",     { "guitar", "drums", "bass", "synth" } },
-        { "guitar",    { "piano", "synth", "electronic" } },
+        // Electronic genres
+        { "techno",      { "soft", "ambient", "slow", "acoustic", "guitar", "strings", "piano", "flute", "orchestral" } },
+        { "house",       { "acoustic", "guitar", "strings", "orchestral", "slow" } },
+        { "deep house",  { "aggressive", "distortion", "heavy", "fast", "guitar" } },
+        { "trance",      { "acoustic", "guitar", "slow", "lo-fi", "distortion" } },
+        { "drum & bass", { "slow", "soft", "acoustic", "piano", "gentle" } },
+        { "dubstep",     { "acoustic", "soft", "gentle", "strings", "classical", "piano" } },
+        { "electronic",  { "acoustic", "guitar", "strings", "orchestral" } },
+        { "synth wave",  { "acoustic", "distortion", "heavy", "fast", "aggressive" } },
+
+        // Acoustic / organic genres
+        { "ambient",     { "drums", "percussion", "loud", "distortion", "aggressive", "fast", "808" } },
+        { "acoustic",    { "synth", "electronic", "distortion", "808", "heavy", "auto-tune" } },
+        { "folk",        { "synth", "electronic", "808", "distortion", "heavy", "auto-tune" } },
+        { "country",     { "synth", "electronic", "808", "heavy", "distortion" } },
+        { "classical",   { "drums", "808", "distortion", "synth", "electronic", "auto-tune", "bass drop" } },
+        { "orchestral",  { "drums", "808", "distortion", "synth", "electronic", "auto-tune" } },
+
+        // Rock / metal
+        { "metal",       { "soft", "ambient", "piano", "flute", "gentle", "lo-fi", "calm" } },
+        { "rock",        { "soft", "ambient", "flute", "harp", "gentle", "calm", "lo-fi" } },
+        { "punk",        { "soft", "ambient", "gentle", "calm", "orchestral", "strings" } },
+        { "post rock",   { "aggressive", "fast", "808", "auto-tune", "rap" } },
+        { "post punk",   { "soft", "gentle", "calm", "orchestral" } },
+
+        // Urban / hip hop
+        { "hip hop",     { "guitar", "strings", "flute", "classical", "orchestral", "acoustic" } },
+        { "trap",        { "acoustic", "guitar", "strings", "classical", "soft", "gentle" } },
+        { "r&b",         { "distortion", "heavy", "aggressive", "metal", "fast" } },
+
+        // Jazz / blues / soul
+        { "jazz",        { "distortion", "808", "heavy", "auto-tune", "electronic", "aggressive" } },
+        { "blues",       { "synth", "electronic", "808", "auto-tune", "fast" } },
+        { "soul",        { "distortion", "heavy", "aggressive", "electronic", "808" } },
+        { "funk",        { "soft", "ambient", "gentle", "classical", "orchestral" } },
+        { "bossa nova",  { "loud", "heavy", "distortion", "808", "aggressive", "electronic" } },
+
+        // Other
+        { "lo-fi",       { "loud", "heavy", "distortion", "aggressive", "crisp", "polished" } },
+        { "trip hop",    { "fast", "aggressive", "heavy", "distortion", "loud" } },
+        { "reggae",      { "distortion", "heavy", "fast", "aggressive", "electronic" } },
+        { "latin",       { "heavy", "distortion", "aggressive", "808", "electronic" } },
+        { "pop",         { "distortion", "heavy", "aggressive", "noise" } },
+
+        // Instrument-specific rules (when not isolating)
+        { "piano",       { "guitar", "drums", "bass", "synth" } },
+        { "guitar",      { "piano", "synth", "electronic" } },
+        { "violin",      { "electronic", "808", "synth", "distortion" } },
+        { "cello",       { "electronic", "808", "synth", "distortion" } },
+        { "saxophone",   { "electronic", "808", "synth", "distortion" } },
+        { "trumpet",     { "electronic", "808", "synth" } },
+        { "flute",       { "electronic", "808", "heavy", "distortion" } },
     };
 
     for (auto& rule : rules)
@@ -553,10 +695,12 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
 
         AceStepParams params;
         auto instruments = instrumentInput.getText();
+        auto bpm = static_cast<int> (bpmInput.getValue());
+        juce::String caption = promptInput.getText();
         if (instruments.isNotEmpty())
-            params.caption = promptInput.getText() + ", " + instruments;
-        else
-            params.caption = promptInput.getText();
+            caption += ", " + instruments;
+        caption += ", " + juce::String (bpm) + " BPM";
+        params.caption = caption;
 
         auto instrumentsLower = instruments.toLowerCase();
         bool hasVocals = instrumentsLower.contains ("vocal")
@@ -565,7 +709,7 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
                       || instrumentsLower.contains ("rap")
                       || instrumentsLower.contains ("choir");
         params.lyrics = hasVocals ? "" : "[Instrumental]";
-        params.bpm = static_cast<int> (bpmInput.getValue());
+        params.bpm = bpm;
         params.duration = static_cast<int> (lengthInput.getValue());
         params.numSamples = static_cast<int> (samplesInput.getValue());
 
