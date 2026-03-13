@@ -19,6 +19,20 @@ mkdir -p "$VST3_ROOT"
 src="$ARTIFACT_DIR/build/Plugins/$PLUGIN/${PLUGIN}_artefacts/Release/VST3/${PLUGIN}.vst3"
 if [ -d "$src" ]; then
     cp -R "$src" "$VST3_ROOT/"
+    # Bundle ACE-Step binaries inside VST3 Resources
+    RESOURCES="$VST3_ROOT/${PLUGIN}.vst3/Contents/Resources"
+    mkdir -p "$RESOURCES/acestep"
+    for bin in ace-qwen3 dit-vae; do
+        if [ -f "$ARTIFACT_DIR/acestep.cpp/build/$bin" ]; then
+            cp "$ARTIFACT_DIR/acestep.cpp/build/$bin" "$RESOURCES/acestep/"
+            chmod +x "$RESOURCES/acestep/$bin"
+        fi
+    done
+    # Bundle download-models.sh for post-install model download
+    if [ -f "$ARTIFACT_DIR/installers/download-models.sh" ]; then
+        cp "$ARTIFACT_DIR/installers/download-models.sh" "$RESOURCES/acestep/"
+        chmod +x "$RESOURCES/acestep/download-models.sh"
+    fi
 fi
 
 # --- Stage AU ---
@@ -27,6 +41,15 @@ mkdir -p "$AU_ROOT"
 src="$ARTIFACT_DIR/build/Plugins/$PLUGIN/${PLUGIN}_artefacts/Release/AU/${PLUGIN}.component"
 if [ -d "$src" ]; then
     cp -R "$src" "$AU_ROOT/"
+    # Bundle ACE-Step binaries inside AU Resources
+    RESOURCES="$AU_ROOT/${PLUGIN}.component/Contents/Resources"
+    mkdir -p "$RESOURCES/acestep"
+    for bin in ace-qwen3 dit-vae; do
+        if [ -f "$ARTIFACT_DIR/acestep.cpp/build/$bin" ]; then
+            cp "$ARTIFACT_DIR/acestep.cpp/build/$bin" "$RESOURCES/acestep/"
+            chmod +x "$RESOURCES/acestep/$bin"
+        fi
+    done
 fi
 
 # --- Stage Standalone ---
@@ -36,6 +59,22 @@ src="$ARTIFACT_DIR/build/Plugins/$PLUGIN/${PLUGIN}_artefacts/Release/Standalone/
 if [ -d "$src" ]; then
     cp -R "$src" "$APP_ROOT/"
 fi
+
+# --- Stage postinstall script (downloads models) ---
+mkdir -p "$STAGING_DIR/scripts"
+cat > "$STAGING_DIR/scripts/postinstall" << 'POSTINSTALL'
+#!/bin/bash
+# Download ACE-Step models after plugin installation
+MODELS_DIR="$HOME/Library/MusicGenVST/models"
+DL_SCRIPT="/Library/Audio/Plug-Ins/VST3/MusicGenVST.vst3/Contents/Resources/acestep/download-models.sh"
+
+if [ -f "$DL_SCRIPT" ]; then
+    mkdir -p "$MODELS_DIR"
+    DIR="$MODELS_DIR" bash "$DL_SCRIPT" || true
+fi
+exit 0
+POSTINSTALL
+chmod +x "$STAGING_DIR/scripts/postinstall"
 
 # --- Ad-hoc codesign bundles ---
 for bundle in \
@@ -52,6 +91,7 @@ done
 pkgbuild --root "$STAGING_DIR/vst3" \
          --identifier "com.thunderboomrecords.${PLUGIN_LOWER}.vst3" \
          --version "$VERSION" \
+         --scripts "$STAGING_DIR/scripts" \
          "$STAGING_DIR/vst3.pkg"
 
 pkgbuild --root "$STAGING_DIR/au" \

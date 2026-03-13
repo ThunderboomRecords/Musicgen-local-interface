@@ -191,28 +191,84 @@ void MusicGenVSTProcessor::setStateInformation (const void* data, int sizeInByte
 
 juce::File MusicGenVSTProcessor::getAceStepDir() const
 {
-    // acestep.cpp is a sibling directory to the plugin source, but at runtime
-    // we look relative to the plugin binary location or fall back to a
-    // well-known path.
+    // Installed builds: binaries live inside the plugin bundle (Resources/acestep
+    // on macOS, acestep/ subfolder on Windows, system path on Linux).
+    // Dev builds: fall back to the acestep.cpp/build/ source tree.
+
     auto pluginFile = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
 
-    // Walk up to find the acestep.cpp directory — handles build tree layouts
+#if JUCE_MAC
+    // VST3: PluginName.vst3/Contents/Resources/acestep/
+    // AU:   PluginName.component/Contents/Resources/acestep/
+    auto resources = pluginFile.getParentDirectory()  // MacOS/
+                               .getParentDirectory()  // Contents/
+                               .getChildFile ("Resources/acestep");
+    if (resources.isDirectory())
+        return resources;
+#elif JUCE_WINDOWS
+    // Windows: CommonFiles/VST3/PluginName.vst3/acestep/
+    auto acestepDir = pluginFile.getParentDirectory().getChildFile ("acestep");
+    if (acestepDir.isDirectory())
+        return acestepDir;
+#elif JUCE_LINUX
+    // Linux deb: /usr/lib/musicgenvst/acestep/
+    auto systemDir = juce::File ("/usr/lib/musicgenvst/acestep");
+    if (systemDir.isDirectory())
+        return systemDir;
+    // Linux tar.gz: ~/.local/share/MusicGenVST/acestep/
+    auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+    auto userDir = home.getChildFile (".local/share/MusicGenVST/acestep");
+    if (userDir.isDirectory())
+        return userDir;
+#endif
+
+    // Dev fallback: walk up from binary to find acestep.cpp/build/
     auto dir = pluginFile.getParentDirectory();
     for (int i = 0; i < 8; ++i)
     {
         auto candidate = dir.getChildFile ("acestep.cpp");
         if (candidate.isDirectory() && candidate.getChildFile ("build").isDirectory())
-            return candidate;
+            return candidate.getChildFile ("build");
         dir = dir.getParentDirectory();
     }
 
-    // Fallback: check common development paths
-    auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
-    auto devPath = home.getChildFile ("projects/Other/MusicGenVST/acestep.cpp");
+    // Last resort: hardcoded dev path
+    auto devHome = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+    auto devPath = devHome.getChildFile ("projects/Other/MusicGenVST/acestep.cpp/build");
     if (devPath.isDirectory())
         return devPath;
 
     return {};
+}
+
+juce::File MusicGenVSTProcessor::getModelsDir() const
+{
+    // Models are stored in a fixed user-level directory per platform.
+    auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+
+#if JUCE_MAC
+    auto modelsDir = home.getChildFile ("Library/MusicGenVST/models");
+#elif JUCE_WINDOWS
+    auto localAppData = juce::File::getSpecialLocation (juce::File::windowsLocalAppData);
+    auto modelsDir = localAppData.getChildFile ("MusicGenVST/models");
+#elif JUCE_LINUX
+    auto modelsDir = home.getChildFile (".local/share/MusicGenVST/models");
+#endif
+
+    // Dev fallback: acestep.cpp/models/ in source tree
+    if (! modelsDir.isDirectory())
+    {
+        auto dir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
+        for (int i = 0; i < 8; ++i)
+        {
+            auto candidate = dir.getChildFile ("acestep.cpp/models");
+            if (candidate.isDirectory())
+                return candidate;
+            dir = dir.getParentDirectory();
+        }
+    }
+
+    return modelsDir;
 }
 
 void MusicGenVSTProcessor::generateAsync (const AceStepParams& params)
@@ -239,24 +295,23 @@ void MusicGenVSTProcessor::generateAsync (const AceStepParams& params)
 
 void MusicGenVSTProcessor::performGeneration (AceStepParams params)
 {
-    auto aceDir = getAceStepDir();
-    if (! aceDir.isDirectory())
+    auto binDir = getAceStepDir();
+    if (! binDir.isDirectory())
     {
         std::lock_guard<std::mutex> lock (errorMutex);
-        generationError = "acestep.cpp directory not found. Ensure it exists alongside the plugin.";
+        generationError = "ACE-Step binaries directory not found. Reinstall the plugin.";
         return;
     }
 
-    auto buildDir = aceDir.getChildFile ("build");
-    auto modelsDir = aceDir.getChildFile ("models");
+    auto modelsDir = getModelsDir();
 
     // Verify binaries exist
-    auto aceQwen3 = buildDir.getChildFile ("ace-qwen3");
-    auto ditVae = buildDir.getChildFile ("dit-vae");
+    auto aceQwen3 = binDir.getChildFile ("ace-qwen3");
+    auto ditVae = binDir.getChildFile ("dit-vae");
     if (! aceQwen3.existsAsFile() || ! ditVae.existsAsFile())
     {
         std::lock_guard<std::mutex> lock (errorMutex);
-        generationError = "acestep.cpp binaries not found. Run the build script first.";
+        generationError = "ACE-Step binaries (ace-qwen3/dit-vae) not found. Reinstall the plugin.";
         return;
     }
 
@@ -315,6 +370,9 @@ void MusicGenVSTProcessor::performGeneration (AceStepParams params)
         jsonObj->setProperty ("guidance_scale", (double) params.guidanceScale);
         jsonObj->setProperty ("shift", (double) params.shift);
 
+        if (params.srcAudioFile.isNotEmpty())
+            jsonObj->setProperty ("audio_cover_strength", (double) params.audioCoverStrength);
+
         juce::var jsonVar (jsonObj);
         auto jsonStr = juce::JSON::toString (jsonVar);
 
@@ -367,6 +425,12 @@ void MusicGenVSTProcessor::performGeneration (AceStepParams params)
         ditArgs.add (ditModel.getFullPathName());
         ditArgs.add ("--vae");
         ditArgs.add (vaeModel.getFullPathName());
+
+        if (params.srcAudioFile.isNotEmpty())
+        {
+            ditArgs.add ("--src-audio");
+            ditArgs.add (params.srcAudioFile);
+        }
 
         if (! runChildProcess (ditVae.getFullPathName(), ditArgs))
         {

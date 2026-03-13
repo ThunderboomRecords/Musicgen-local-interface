@@ -299,6 +299,7 @@ private:
 //==============================================================================
 class MusicGenVSTEditor final : public juce::AudioProcessorEditor,
                                  public juce::DragAndDropContainer,
+                                 public juce::FileDragAndDropTarget,
                                  private juce::Timer
 {
 public:
@@ -310,6 +311,10 @@ public:
     void resized() override;
     void timerCallback() override;
     void startPlaybackTimer();
+
+    // FileDragAndDropTarget
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
 
 private:
     MusicGenVSTProcessor& processorRef;
@@ -345,6 +350,10 @@ private:
     juce::Label topPLabel;
     juce::Slider topKDial;
     juce::Label topKLabel;
+
+    // Audio input (cover mode)
+    juce::File srcAudioFile;
+    std::unique_ptr<juce::FileChooser> fileChooser;
 
     // Status label
     juce::Label statusLabel;

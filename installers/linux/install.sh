@@ -6,6 +6,8 @@ set -euo pipefail
 
 VST3_DIR="${HOME}/.vst3"
 BIN_DIR="${HOME}/.local/bin"
+ACESTEP_DIR="${HOME}/.local/share/MusicGenVST/acestep"
+MODELS_DIR="${HOME}/.local/share/MusicGenVST/models"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -41,6 +43,22 @@ if [ -d "$SCRIPT_DIR/standalone" ] && [ "$(ls -A "$SCRIPT_DIR/standalone" 2>/dev
     mkdir -p "$BIN_DIR"
     cp "$SCRIPT_DIR/standalone/"* "$BIN_DIR/"
     chmod +x "$BIN_DIR/"*
+fi
+
+# Install ACE-Step binaries
+if [ -d "$SCRIPT_DIR/acestep" ]; then
+    echo "Installing ACE-Step binaries to $ACESTEP_DIR ..."
+    mkdir -p "$ACESTEP_DIR"
+    cp "$SCRIPT_DIR/acestep/ace-qwen3" "$ACESTEP_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/acestep/dit-vae" "$ACESTEP_DIR/" 2>/dev/null || true
+    chmod +x "$ACESTEP_DIR/"* 2>/dev/null || true
+
+    # Download models
+    if [ -f "$SCRIPT_DIR/acestep/download-models.sh" ]; then
+        echo "Downloading ACE-Step models to $MODELS_DIR ..."
+        mkdir -p "$MODELS_DIR"
+        DIR="$MODELS_DIR" bash "$SCRIPT_DIR/acestep/download-models.sh" || echo "Warning: Model download failed. Run download-models.sh manually later."
+    fi
 fi
 
 echo ""

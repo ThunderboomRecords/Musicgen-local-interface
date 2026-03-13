@@ -103,6 +103,7 @@ public:
     juce::String getUserId() const { return userId; }
     juce::File getGeneratedDir() const;
     juce::File getAceStepDir() const;
+    juce::File getModelsDir() const;
 
 private:
     void performGeneration (AceStepParams params);

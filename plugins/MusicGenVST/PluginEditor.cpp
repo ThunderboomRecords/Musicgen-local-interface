@@ -648,6 +648,26 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     // Upload Audio File button
     uploadFileButton.setButtonText ("Upload Audio File");
     uploadFileButton.setComponentID ("uploadFileButton");
+    uploadFileButton.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    uploadFileButton.onClick = [this]
+    {
+        fileChooser = std::make_unique<juce::FileChooser> (
+            "Select an audio file...",
+            juce::File::getSpecialLocation (juce::File::userHomeDirectory),
+            "*.wav;*.mp3;*.aif;*.aiff;*.flac");
+
+        fileChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                    | juce::FileBrowserComponent::canSelectFiles,
+            [this] (const juce::FileChooser& fc)
+            {
+                auto result = fc.getResult();
+                if (result != juce::File{})
+                {
+                    srcAudioFile = result;
+                    uploadFileButton.setButtonText (result.getFileName());
+                }
+            });
+    };
     addAndMakeVisible (uploadFileButton);
 
     // Prompt (caption)
@@ -688,6 +708,7 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
 
     // Generate button
     generateButton.setButtonText ("Generate");
+    generateButton.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     generateButton.onClick = [this]
     {
         if (processorRef.isGenerating())
@@ -734,6 +755,10 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
         params.lmTopP = static_cast<float> (topPDial.getValue());
         params.lmTopK = static_cast<int> (topKDial.getValue());
 
+        // Audio input for cover mode
+        if (srcAudioFile.existsAsFile())
+            params.srcAudioFile = srcAudioFile.getFullPathName();
+
         processorRef.generateAsync (params);
         startTimerHz (10);
     };
@@ -758,6 +783,7 @@ MusicGenVSTEditor::MusicGenVSTEditor (MusicGenVSTProcessor& p)
     // Advanced toggle
     advancedToggle.setButtonText ("Advanced Settings");
     advancedToggle.setClickingTogglesState (true);
+    advancedToggle.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     advancedToggle.onClick = [this]
     {
         advancedVisible = ! advancedVisible;
@@ -845,6 +871,34 @@ void MusicGenVSTEditor::startPlaybackTimer()
 {
     if (! isTimerRunning())
         startTimerHz (10);
+}
+
+bool MusicGenVSTEditor::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (auto& f : files)
+    {
+        auto ext = juce::File (f).getFileExtension().toLowerCase();
+        if (ext == ".wav" || ext == ".mp3" || ext == ".aif"
+            || ext == ".aiff" || ext == ".flac")
+            return true;
+    }
+    return false;
+}
+
+void MusicGenVSTEditor::filesDropped (const juce::StringArray& files, int, int)
+{
+    for (auto& f : files)
+    {
+        auto file = juce::File (f);
+        auto ext = file.getFileExtension().toLowerCase();
+        if (ext == ".wav" || ext == ".mp3" || ext == ".aif"
+            || ext == ".aiff" || ext == ".flac")
+        {
+            srcAudioFile = file;
+            uploadFileButton.setButtonText (file.getFileName());
+            break;
+        }
+    }
 }
 
 //==============================================================================

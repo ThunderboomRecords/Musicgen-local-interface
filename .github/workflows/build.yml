@@ -99,6 +99,24 @@ jobs:
           key: ${{ matrix.os }}-ccache
           max-size: 2G
 
+      # --- Build ACE-Step binaries (CPU-only) ---
+      - name: Build ACE-Step (Win/Linux)
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          cd acestep.cpp
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release --parallel
+
+      - name: Build ACE-Step (macOS Universal Binary)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd acestep.cpp
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          cmake --build build --config Release --parallel
+
+      # --- Build JUCE plugin ---
       - name: Configure CMake (Win/Linux)
         if: runner.os != 'macOS'
         run: >
@@ -133,6 +151,12 @@ jobs:
           path: |
             build/Plugins/MusicGenVST/MusicGenVST_artefacts/Release/VST3
             build/Plugins/MusicGenVST/MusicGenVST_artefacts/Release/AU
+            acestep.cpp/build/ace-qwen3
+            acestep.cpp/build/ace-qwen3.exe
+            acestep.cpp/build/dit-vae
+            acestep.cpp/build/dit-vae.exe
+            installers/download-models.sh
+            installers/windows/download-models.ps1
 
   package:
     name: Package for ${{ matrix.os }}
